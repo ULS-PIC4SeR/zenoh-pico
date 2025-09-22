@@ -99,15 +99,17 @@ void _z_free_endpoint_tcp(_z_sys_net_endpoint_t *ep) {
 }
 
 z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t rep, uint32_t tout) {
+    Serial.println("Opening TCP link");
     z_result_t ret = _Z_RES_OK;
 
     sock->_client = new EthernetClient();
     sock->_client->setConnectionTimeout(tout);
 
     if (!sock->_client->connect(rep._ip, rep._port)) {
-        ret = _Z_ERR_GENERIC;
+        return _Z_ERR_GENERIC;
     }
     
+    Serial.println("TCP link opened");
     return ret;
 }
 
@@ -132,31 +134,78 @@ z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t 
 void _z_close_tcp(_z_sys_net_socket_t *sock) {sock->_client->stop();}
 
 size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
-    int32_t rb = sock._client->read(ptr, len);
-    if(rb != len) {
-        // As in FreeRTOS+TCP SIZE_MAX
-        rb =  SIZE_MAX;
+    Serial.println("Read TCP");
+
+    // If socket is disconnected and no bytes pending -> error
+    if (!sock._client->connected() && sock._client->available() == 0) {
+        Serial.println("Disconnected");
+        return SIZE_MAX;
     }
 
-    return rb;
+    int32_t avail = sock._client->available(); // bytes ready to read
+    if (avail <= 0) {
+        Serial.println("Nothing to read");
+        // Nothing to read now. Return 0, not SIZE_MAX.
+        return 0;
+    }
+
+    if (avail > (int32_t)len) avail = (int32_t)len;
+    int32_t n = sock._client->read(ptr, (size_t)avail);
+    if (n < 0) {
+        Serial.println("Read error");
+        // Read error reported by library
+        return SIZE_MAX;
+    }
+
+    Serial.println("Read OK");
+    return (size_t)n;
 }
 
 size_t _z_send_tcp(const _z_sys_net_socket_t sock, const uint8_t *ptr, size_t len) {
-    int32_t ret = sock._client->write(ptr, len);
-    if (ret != len) {
-        return SIZE_MAX;
+    Serial.println("Send TCP");
+    if (!sock._client || !sock._client->connected()) {
+        Serial.println("Not Connected");
+        return -1;
     }
-    return ret;
+
+    size_t total = 0;
+    unsigned long start = millis();
+    while (total < len) {
+        int sent = sock._client->write(ptr + total, len - total);
+        if (sent < 0) return -1;
+        total += (size_t)sent;
+
+        // avoid infinite loop: if nothing gets sent for > 500ms, break
+        if ((millis() - start) > 500) {
+            Serial.println("Nothing sent, breaking");
+            break;
+        }
+
+        // yield briefly to let SPI/network progress
+        delay(1);
+    }
+    Serial.println("Send OK");
+    return total;
 }
 
 size_t _z_read_exact_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
     // Copied from FreeRTOS+TCP
+    // Serial.println("Read exact TCP");
+    unsigned long start = millis();
     size_t n = 0;
     uint8_t *pos = &ptr[0];
 
     do {
         size_t rb = _z_read_tcp(sock, pos, len - n);
-        if ((rb == SIZE_MAX) || (rb == 0)) {
+        if (rb == 0) {
+            // nothing yet, give W5100 time
+            if (millis() - start > 1000) { // 1s timeout
+                return SIZE_MAX; // timeout
+            }
+            // Yield/short delay instead of Serial.print
+            delayMicroseconds(200);
+            continue;
+        } else if (rb == SIZE_MAX) {
             n = rb;
             break;
         }

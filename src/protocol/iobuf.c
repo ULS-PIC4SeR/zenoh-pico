@@ -353,7 +353,8 @@ z_result_t _z_wbuf_wrap_bytes(_z_wbuf_t *wbf, const uint8_t *bs, size_t offset, 
     _z_iosli_t wios = _z_iosli_wrap(bs, length, offset, offset + length);
     _z_wbuf_add_iosli(wbf, _z_iosli_clone(&wios));
     // Set remaining space as a new ioslice
-    wios = _z_iosli_wrap(ios->_buf, curr_space, 0, 0);
+    // wios = _z_iosli_wrap(ios->_buf, curr_space, 0, 0);
+    wios = _z_iosli_wrap(_z_ptr_u8_offset(ios->_buf, (ptrdiff_t)ios->_w_pos), curr_space, 0, 0);
     _z_wbuf_add_iosli(wbf, _z_iosli_clone(&wios));
     return ret;
 }
