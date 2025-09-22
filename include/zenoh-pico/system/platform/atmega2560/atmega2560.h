@@ -15,7 +15,7 @@
 #define ZENOH_PICO_SYSTEM_ATMEGA_2560_TYPES_H
 
 #include <stdint.h>  // For uint8_t
-#include <Arduino_FreeRTOS.h>
+#include <stddef.h>  // For size_t
 
 #ifdef __cplusplus
 extern "C" {

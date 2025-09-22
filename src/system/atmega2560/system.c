@@ -1,8 +1,6 @@
 #include <time.h>
 #include <stdlib.h>
 
-#include <Arduino_FreeRTOS.h>
-
 #include "zenoh-pico/config.h"
 #include "zenoh-pico/system/platform.h"
 
@@ -31,37 +29,37 @@ void z_random_fill(void *buf, size_t len) {
 }
 
 /*------------------ Memory ------------------*/
-void *z_malloc(size_t size) { return pvPortMalloc(size); }
+void *z_malloc(size_t size) { return malloc(size); }
 
 void *z_realloc(void *ptr, size_t size) { return realloc(ptr, size); }
 
-void z_free(void *ptr) { vPortFree(ptr); }
+void z_free(void *ptr) { free(ptr); }
 
 /*------------------ Sleep ------------------*/
 z_result_t z_sleep_us(size_t time) {
-    vTaskDelay(pdMS_TO_TICKS(time / 1000));
+    delayMicroseconds(time);
     return _Z_RES_OK;
 }
 
 z_result_t z_sleep_ms(size_t time) {
-    vTaskDelay(pdMS_TO_TICKS(time));
+    delay(time);
     return _Z_RES_OK;
 }
 
 z_result_t z_sleep_s(size_t time) {
-    vTaskDelay(pdMS_TO_TICKS(time * 1000));
+    delay(time * 1000);
     return _Z_RES_OK;
 }
 
 /*------------------ Clock ------------------*/
-z_clock_t z_clock_now(void) { return xTaskGetTickCount(); }
+z_clock_t z_clock_now(void) { return millis(); }
 
 unsigned long z_clock_elapsed_us(z_clock_t *instant) { return z_clock_elapsed_ms(instant) * 1000; }
 
 unsigned long z_clock_elapsed_ms(z_clock_t *instant) {
     z_clock_t now = z_clock_now();
 
-    unsigned long elapsed = (now - *instant) * portTICK_PERIOD_MS;
+    unsigned long elapsed = (now - *instant);
     return elapsed;
 }
 
@@ -69,9 +67,8 @@ unsigned long z_clock_elapsed_s(z_clock_t *instant) { return z_clock_elapsed_ms(
 
 void z_clock_advance_us(z_clock_t *clock, unsigned long duration) { z_clock_advance_ms(clock, duration / 1000); }
 
-void z_clock_advance_ms(z_clock_t *clock, unsigned long duration) {
-    unsigned long ticks = pdMS_TO_TICKS(duration);
-    *clock += ticks;
+void z_clock_advance_ms(z_clock_t *clock, unsigned long duration) {;
+    *clock += duration;
 }
 
 void z_clock_advance_s(z_clock_t *clock, unsigned long duration) { z_clock_advance_ms(clock, duration * 1000); }

@@ -2,7 +2,6 @@
 #include <Ethernet.h>
 
 extern "C" {
-#include <Arduino_FreeRTOS.h>
 
 #include "zenoh-pico/system/platform.h"
 #include "zenoh-pico/transport/transport.h"
@@ -99,7 +98,6 @@ void _z_free_endpoint_tcp(_z_sys_net_endpoint_t *ep) {
 }
 
 z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t rep, uint32_t tout) {
-    Serial.println("Opening TCP link");
     z_result_t ret = _Z_RES_OK;
 
     sock->_client = new EthernetClient();
@@ -109,7 +107,6 @@ z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t re
         return _Z_ERR_GENERIC;
     }
     
-    Serial.println("TCP link opened");
     return ret;
 }
 
@@ -134,17 +131,14 @@ z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t 
 void _z_close_tcp(_z_sys_net_socket_t *sock) {sock->_client->stop();}
 
 size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
-    Serial.println("Read TCP");
 
     // If socket is disconnected and no bytes pending -> error
     if (!sock._client->connected() && sock._client->available() == 0) {
-        Serial.println("Disconnected");
         return SIZE_MAX;
     }
 
     int32_t avail = sock._client->available(); // bytes ready to read
     if (avail <= 0) {
-        Serial.println("Nothing to read");
         // Nothing to read now. Return 0, not SIZE_MAX.
         return 0;
     }
@@ -152,19 +146,15 @@ size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
     if (avail > (int32_t)len) avail = (int32_t)len;
     int32_t n = sock._client->read(ptr, (size_t)avail);
     if (n < 0) {
-        Serial.println("Read error");
         // Read error reported by library
         return SIZE_MAX;
     }
 
-    Serial.println("Read OK");
     return (size_t)n;
 }
 
 size_t _z_send_tcp(const _z_sys_net_socket_t sock, const uint8_t *ptr, size_t len) {
-    Serial.println("Send TCP");
     if (!sock._client || !sock._client->connected()) {
-        Serial.println("Not Connected");
         return -1;
     }
 
@@ -177,14 +167,12 @@ size_t _z_send_tcp(const _z_sys_net_socket_t sock, const uint8_t *ptr, size_t le
 
         // avoid infinite loop: if nothing gets sent for > 500ms, break
         if ((millis() - start) > 500) {
-            Serial.println("Nothing sent, breaking");
             break;
         }
 
         // yield briefly to let SPI/network progress
         delay(1);
     }
-    Serial.println("Send OK");
     return total;
 }
 

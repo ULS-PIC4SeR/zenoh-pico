@@ -445,7 +445,6 @@ endif()
 if(WITH_ATMEGA2560)
   pico_target_link_library(ArduinoCore)
   pico_target_link_library(EthernetLib)
-  pico_target_link_library(freertosLib)
 endif()
 
 #
