@@ -115,7 +115,6 @@ static z_result_t _z_trigger_query_reply_partial_inner(_z_session_t *zn, const _
                                                        const _z_keyexpr_t *keyexpr, _z_msg_put_t *msg,
                                                        z_sample_kind_t kind, _z_transport_peer_common_t *peer) {
     _z_session_mutex_lock(zn);
-
     // Get query infos
     _z_pending_query_t *pen_qry = __unsafe__z_get_pending_query_by_id(zn, id);
     if (pen_qry == NULL) {
@@ -124,11 +123,12 @@ static z_result_t _z_trigger_query_reply_partial_inner(_z_session_t *zn, const _
         return _Z_RES_OK;
     }
     _z_keyexpr_t expanded_ke = __unsafe_z_get_expanded_key_from_key(zn, keyexpr, true, peer);
-    if (!pen_qry->_anykey && !_z_keyexpr_suffix_intersects(&pen_qry->_key, keyexpr)) {
-        _z_session_mutex_unlock(zn);
-        // Not concerned by the reply
-        return _Z_RES_OK;
-    }
+    // TODO(giafranchini): workaround to build the reply --> check why keyexpressions do not intersect 
+    // if (!pen_qry->_anykey && !_z_keyexpr_suffix_intersects(&pen_qry->_key, keyexpr)) {
+    //     _z_session_mutex_unlock(zn);
+    //     // Not concerned by the reply
+    //     return _Z_RES_OK;
+    // }
     // Build the reply
     _z_reply_t reply;
     _z_reply_steal_data(&reply, &expanded_ke, zn->_local_zid, &msg->_payload, &msg->_commons._timestamp,
