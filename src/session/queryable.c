@@ -245,6 +245,9 @@ z_result_t _z_trigger_queryables(_z_session_rc_t *zsrc, _z_msg_query_t *msgq, _z
     _z_queryable_query_steal_data(q, zsrc, msgq, &qle_infos.ke_out, qid, anyke);
 
     z_result_t ret = _Z_RES_OK;
+    _Z_CLEAN_RETURN_IF_ERR(ret, _z_keyexpr_clear(q_key); _z_msg_query_clear(msgq);
+                           _z_queryable_cache_data_clear(&qle_infos); _z_query_rc_drop(&query))
+
     // Parse session_queryable svec
     for (size_t i = 0; i < qle_infos.qle_nb; i++) {
         _z_queryable_infos_t *qle_info = _z_queryable_infos_svec_get(&qle_infos.infos, i);
