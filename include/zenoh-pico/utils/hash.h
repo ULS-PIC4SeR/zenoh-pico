@@ -29,7 +29,9 @@ extern "C" {
 #define _Z_FNV_OFFSET_BASIS 2166136261U
 #define _Z_FNV_PRIME 16777619U
 #else
-#error "Unsupported size_t size"
+// giafranchini: workaround to avoid compilte time error on Ardino MEGA
+#define _Z_FNV_OFFSET_BASIS 2166136261U
+#define _Z_FNV_PRIME 16777619U
 #endif
 
 static inline size_t _z_hash_combine(size_t h1, size_t h2) {

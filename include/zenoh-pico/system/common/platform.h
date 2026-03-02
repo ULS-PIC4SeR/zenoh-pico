@@ -50,6 +50,8 @@
 #include "zenoh-pico/system/platform/freertos/lwip.h"
 #elif defined(ZENOH_RPI_PICO)
 #include "zenoh-pico/system/platform/rpi_pico.h"
+#elif defined(ZENOH_ATMEGA)
+#include "zenoh-pico/system/platform/atmega2560/atmega2560.h"
 #elif defined(ZENOH_GENERIC)
 #include "zenoh_generic_platform.h"
 #elif defined(ZENOH_THREADX_STM32)
