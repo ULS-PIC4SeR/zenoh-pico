@@ -128,7 +128,11 @@ z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t 
     return ret;
 }
 
-void _z_close_tcp(_z_sys_net_socket_t *sock) {sock->_client->stop();}
+void _z_close_tcp(_z_sys_net_socket_t *sock) {
+    sock->_client->stop();
+    delete sock->_client;
+    sock->_client = NULL;
+}
 
 size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
 
