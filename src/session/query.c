@@ -100,7 +100,6 @@ static z_result_t _z_trigger_query_reply_partial_inner(_z_session_t *zn, const _
                                                        _z_msg_put_t *msg, z_sample_kind_t kind,
                                                        _z_entity_global_id_t *replier_id) {
     _z_session_mutex_lock(zn);
-
     // Get query infos
     _z_pending_query_t *pen_qry = _z_unsafe_get_pending_query_by_id(zn, id);
     if (pen_qry == NULL) {

@@ -99,7 +99,6 @@ z_result_t _z_open_link(_z_link_t *zl, const _z_string_t *locator, const _z_conf
         _Z_ERROR_LOG(_Z_ERR_CONFIG_LOCATOR_INVALID);
         ret = _Z_ERR_CONFIG_LOCATOR_INVALID;
     }
-
     return ret;
 }
 

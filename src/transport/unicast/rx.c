@@ -101,13 +101,15 @@ static z_result_t _z_unicast_handle_frame(_z_transport_unicast_t *ztu, uint8_t h
         if (_z_sn_precedes(ztu->_common._sn_res, peer->_sn_rx_reliable, msg->_sn)) {
             peer->_sn_rx_reliable = msg->_sn;
         } else {
-#if Z_FEATURE_FRAGMENTATION == 1
-            _z_wbuf_clear(&peer->common._dbuf_reliable);
-            peer->common._state_reliable = _Z_DBUF_STATE_NULL;
-#endif
-            _Z_INFO("Reliable message dropped because it is out of order");
-            _z_t_msg_frame_clear(msg);
-            return _Z_RES_OK;
+            // TODO(giafranchini): workaround to not drop service reply frame --> check why sn are out of order 
+// #if Z_FEATURE_FRAGMENTATION == 1
+//             _z_wbuf_clear(&peer->common._dbuf_reliable);
+//             peer->common._state_reliable = _Z_DBUF_STATE_NULL;
+// #endif
+//             cprint("Reliable message dropped because it is out of order");
+//             _Z_INFO("Reliable message dropped because it is out of order");
+//             _z_t_msg_frame_clear(msg);
+//             return _Z_RES_OK;
         }
     } else {
         tmsg_reliability = Z_RELIABILITY_BEST_EFFORT;
