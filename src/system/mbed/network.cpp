@@ -36,14 +36,14 @@ extern "C" {
 z_result_t _z_socket_set_non_blocking(const _z_sys_net_socket_t *sock) {
     _ZP_UNUSED(sock);
     _Z_ERROR("Function not yet supported on this system");
-    return _Z_ERR_GENERIC;
+    _Z_ERROR_RETURN(_Z_ERR_GENERIC);
 }
 
 z_result_t _z_socket_accept(const _z_sys_net_socket_t *sock_in, _z_sys_net_socket_t *sock_out) {
     _ZP_UNUSED(sock_in);
     _ZP_UNUSED(sock_out);
     _Z_ERROR("Function not yet supported on this system");
-    return _Z_ERR_GENERIC;
+    _Z_ERROR_RETURN(_Z_ERR_GENERIC);
 }
 
 void _z_socket_close(_z_sys_net_socket_t *sock) { _ZP_UNUSED(sock); }
@@ -52,7 +52,7 @@ z_result_t _z_socket_wait_event(void *peers, _z_mutex_rec_t *mutex) {
     _ZP_UNUSED(peers);
     _ZP_UNUSED(mutex);
     _Z_ERROR("Function not yet supported on this system");
-    return _Z_ERR_GENERIC;
+    _Z_ERROR_RETURN(_Z_ERR_GENERIC);
 }
 
 #if Z_FEATURE_LINK_TCP == 1
@@ -65,6 +65,7 @@ z_result_t _z_create_endpoint_tcp(_z_sys_net_endpoint_t *ep, const char *s_addre
     if ((port > (uint32_t)0) && (port <= (uint32_t)65355)) {  // Port numbers should range from 1 to 65355
         ep->_iptcp = new SocketAddress(s_address, port);
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -79,15 +80,18 @@ z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t re
     sock->_tcp = new TCPSocket();
     sock->_tcp->set_timeout(tout);
     if ((ret == _Z_RES_OK) && (sock->_tcp->open(NetworkInterface::get_default_instance()) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if ((ret == _Z_RES_OK) && (sock->_tcp->connect(*rep._iptcp) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if (ret != _Z_RES_OK) {
         delete sock->_tcp;
+        sock->_tcp = NULL;
     }
 
     return ret;
@@ -99,14 +103,18 @@ z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t 
     (void)lep;
 
     // @TODO: To be implemented
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
 }
 
 void _z_close_tcp(_z_sys_net_socket_t *sock) {
-    sock->_tcp->close();
-    delete sock->_tcp;
+    if (sock->_tcp != NULL) {
+        sock->_tcp->close();
+        delete sock->_tcp;
+        sock->_tcp = NULL;
+    }
 }
 
 size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
@@ -130,7 +138,7 @@ size_t _z_read_exact_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t le
         }
 
         n = n + rb;
-        pos = _z_ptr_u8_offset(pos, n);
+        pos = _z_ptr_u8_offset(pos, rb);
     } while (n != len);
 
     return n;
@@ -149,6 +157,7 @@ z_result_t _z_create_endpoint_udp(_z_sys_net_endpoint_t *ep, const char *s_addre
     if ((port > (uint32_t)0) && (port <= (uint32_t)65355)) {  // Port numbers should range from 1 to 65355
         ep->_iptcp = new SocketAddress(s_address, port);
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -167,11 +176,13 @@ z_result_t _z_open_udp_unicast(_z_sys_net_socket_t *sock, const _z_sys_net_endpo
     sock->_udp = new UDPSocket();
     sock->_udp->set_timeout(tout);
     if ((ret == _Z_RES_OK) && (sock->_udp->open(NetworkInterface::get_default_instance()) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if (ret != _Z_RES_OK) {
-        delete sock->_tcp;
+        delete sock->_udp;
+        sock->_udp = NULL;
     }
 
     return ret;
@@ -184,14 +195,18 @@ z_result_t _z_listen_udp_unicast(_z_sys_net_socket_t *sock, const _z_sys_net_end
     (void)tout;
 
     // @TODO: To be implemented
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
 }
 
 void _z_close_udp_unicast(_z_sys_net_socket_t *sock) {
-    sock->_udp->close();
-    delete sock->_udp;
+    if (sock->_udp != NULL) {
+        sock->_udp->close();
+        delete sock->_udp;
+        sock->_udp = NULL;
+    }
 }
 
 size_t _z_read_udp_unicast(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
@@ -216,7 +231,7 @@ size_t _z_read_exact_udp_unicast(const _z_sys_net_socket_t sock, uint8_t *ptr, s
         }
 
         n = n + rb;
-        pos = _z_ptr_u8_offset(pos, n);
+        pos = _z_ptr_u8_offset(pos, rb);
     } while (n != len);
 
     return n;
@@ -238,11 +253,13 @@ z_result_t _z_open_udp_multicast(_z_sys_net_socket_t *sock, const _z_sys_net_end
     sock->_udp = new UDPSocket();
     sock->_udp->set_timeout(tout);
     if ((ret == _Z_RES_OK) && (sock->_udp->open(NetworkInterface::get_default_instance()) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if (ret != _Z_RES_OK) {
-        delete sock->_tcp;
+        delete sock->_udp;
+        sock->_udp = NULL;
     }
 
     return ret;
@@ -256,19 +273,24 @@ z_result_t _z_listen_udp_multicast(_z_sys_net_socket_t *sock, const _z_sys_net_e
     sock->_udp = new UDPSocket();
     sock->_udp->set_timeout(tout);
     if ((ret == _Z_RES_OK) && (sock->_udp->open(NetworkInterface::get_default_instance()) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if ((ret == _Z_RES_OK) && (sock->_udp->bind(rep._iptcp->get_port()) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if ((ret == _Z_RES_OK) && (sock->_udp->join_multicast_group(*rep._iptcp) < 0)) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
     if (ret != _Z_RES_OK) {
-        delete sock->_tcp;
+        sock->_udp->close();
+        delete sock->_udp;
+        sock->_udp = NULL;
     }
 
     return ret;
@@ -277,12 +299,18 @@ z_result_t _z_listen_udp_multicast(_z_sys_net_socket_t *sock, const _z_sys_net_e
 void _z_close_udp_multicast(_z_sys_net_socket_t *sockrecv, _z_sys_net_socket_t *socksend,
                             const _z_sys_net_endpoint_t rep, const _z_sys_net_endpoint_t lep) {
     _ZP_UNUSED(lep);
-    sockrecv->_udp->leave_multicast_group(*rep._iptcp);
-    sockrecv->_udp->close();
-    delete sockrecv->_udp;
+    if (sockrecv->_udp != NULL) {
+        sockrecv->_udp->leave_multicast_group(*rep._iptcp);
+        sockrecv->_udp->close();
+        delete sockrecv->_udp;
+        sockrecv->_udp = NULL;
+    }
 
-    socksend->_udp->close();
-    delete socksend->_udp;
+    if (socksend->_udp != NULL) {
+        socksend->_udp->close();
+        delete socksend->_udp;
+        socksend->_udp = NULL;
+    }
 }
 
 size_t _z_read_udp_multicast(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len, const _z_sys_net_endpoint_t lep,
@@ -330,7 +358,7 @@ size_t _z_read_exact_udp_multicast(const _z_sys_net_socket_t sock, uint8_t *ptr,
         }
 
         n = n + rb;
-        pos = _z_ptr_u8_offset(pos, n);
+        pos = _z_ptr_u8_offset(pos, rb);
     } while (n != len);
 
     return n;
@@ -351,7 +379,7 @@ z_result_t _z_open_serial_from_pins(_z_sys_net_socket_t *sock, uint32_t txpin, u
         sock->_serial->enable_input(true);
         sock->_serial->enable_output(true);
     } else {
-        return _Z_ERR_GENERIC;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     return _z_connect_serial(*sock);
 }
@@ -362,6 +390,7 @@ z_result_t _z_open_serial_from_dev(_z_sys_net_socket_t *sock, char *device, uint
     (void)(sock);
     (void)(device);
     (void)(baudrate);
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
@@ -375,6 +404,7 @@ z_result_t _z_listen_serial_from_pins(_z_sys_net_socket_t *sock, uint32_t txpin,
     (void)baudrate;
 
     // @TODO: To be implemented
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
@@ -386,6 +416,7 @@ z_result_t _z_listen_serial_from_dev(_z_sys_net_socket_t *sock, char *device, ui
     (void)(sock);
     (void)(device);
     (void)(baudrate);
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
@@ -395,6 +426,10 @@ void _z_close_serial(_z_sys_net_socket_t *sock) { delete sock->_serial; }
 
 size_t _z_read_serial_internal(const _z_sys_net_socket_t sock, uint8_t *header, uint8_t *ptr, size_t len) {
     uint8_t *raw_buf = (uint8_t *)z_malloc(_Z_SERIAL_MAX_COBS_BUF_SIZE);
+    if (raw_buf == NULL) {
+        _Z_ERROR("Failed to allocate serial COBS buffer");
+        return SIZE_MAX;
+    }
     size_t rb = 0;
     for (size_t i = 0; i < _Z_SERIAL_MAX_COBS_BUF_SIZE; i++) {
         sock._serial->read(&raw_buf[i], 1);
@@ -405,6 +440,10 @@ size_t _z_read_serial_internal(const _z_sys_net_socket_t sock, uint8_t *header, 
     }
 
     uint8_t *tmp_buf = (uint8_t *)z_malloc(_Z_SERIAL_MFS_SIZE);
+    if (tmp_buf == NULL) {
+        _Z_ERROR("Failed to allocate serial MFS buffer");
+        return SIZE_MAX;
+    }
     size_t ret = _z_serial_msg_deserialize(raw_buf, rb, ptr, len, header, tmp_buf, _Z_SERIAL_MFS_SIZE);
 
     z_free(raw_buf);
@@ -416,6 +455,10 @@ size_t _z_read_serial_internal(const _z_sys_net_socket_t sock, uint8_t *header, 
 size_t _z_send_serial_internal(const _z_sys_net_socket_t sock, uint8_t header, const uint8_t *ptr, size_t len) {
     uint8_t *tmp_buf = (uint8_t *)z_malloc(_Z_SERIAL_MFS_SIZE);
     uint8_t *raw_buf = (uint8_t *)z_malloc(_Z_SERIAL_MAX_COBS_BUF_SIZE);
+    if ((raw_buf == NULL) || (tmp_buf == NULL)) {
+        _Z_ERROR("Failed to allocate serial COBS and/or MFS buffer");
+        return SIZE_MAX;
+    }
     size_t ret =
         _z_serial_msg_serialize(raw_buf, _Z_SERIAL_MAX_COBS_BUF_SIZE, ptr, len, header, tmp_buf, _Z_SERIAL_MFS_SIZE);
 

@@ -41,6 +41,11 @@ typedef enum {
     Z_CHANNEL_DISCONNECTED = 1,
     _Z_RES_CHANNEL_NODATA = 2,
     Z_CHANNEL_NODATA = 2,
+    _Z_NO_DATA_PROCESSED = 3,
+    Z_NO_DATA_PROCESSED = 3,
+    _Z_RESOURCE_POSITIVE_REF_COUNT = 4,
+    Z_CANCELLATION_TOKEN_ALREADY_CANCELLED = 5,
+    Z_SYNC_GROUP_CLOSED = 6,
 
     _Z_ERR_MESSAGE_DESERIALIZATION_FAILED = -119,
     _Z_ERR_MESSAGE_SERIALIZATION_FAILED = -118,
@@ -74,6 +79,7 @@ typedef enum {
 
     _Z_ERR_SCOUT_NO_RESULTS = -87,
 
+    _Z_ERR_UNDERFLOW = -81,
     _Z_ERR_SYSTEM_GENERIC = -80,
     _Z_ERR_SYSTEM_TASK_FAILED = -79,
     _Z_ERR_SYSTEM_OUT_OF_MEMORY = -78,
@@ -87,9 +93,18 @@ typedef enum {
     _Z_ERR_SESSION_CLOSED = -73,
     Z_EDESERIALIZE = -72,
     Z_ETIMEDOUT = -71,
+    _Z_ERR_KEYEXPR_DECLARED_ON_ANOTHER_SESSION = -70,
 
+    _Z_ERR_NULL = -127,
     _Z_ERR_GENERIC = -128
 } _z_res_t;
+
+#define _Z_SET_IF_OK(expr, value) \
+    {                             \
+        if (expr == _Z_RES_OK) {  \
+            expr = value;         \
+        }                         \
+    }
 
 #define _Z_RETURN_IF_ERR(expr)    \
     {                             \
@@ -106,6 +121,21 @@ typedef enum {
             clean_expr;                               \
             return __res;                             \
         }                                             \
+    }
+
+#define _Z_RETURN_ERR_OOM_IF_TRUE(expr)         \
+    {                                           \
+        if (expr) {                             \
+            return _Z_ERR_SYSTEM_OUT_OF_MEMORY; \
+        }                                       \
+    }
+
+#define _Z_CLEAN_RETURN_ERR_OOM_IF_TRUE(expr, clean_expr) \
+    {                                                     \
+        if (expr) {                                       \
+            clean_expr;                                   \
+            return _Z_ERR_SYSTEM_OUT_OF_MEMORY;           \
+        }                                                 \
     }
 
 #define _Z_IS_OK(expr) (expr == _Z_RES_OK)

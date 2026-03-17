@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
         unsigned long elapsed_us = 0;
         while (elapsed_us < warmup_ms * 1000) {
             z_closure(&callback, reply_handler, NULL, NULL);
-            if (z_querier_get(z_loan(que), NULL, z_move(callback), NULL) != 0) {
+            if (z_querier_get(z_loan(que), NULL, z_move(callback), NULL) < 0) {
                 printf("Tx failed");
                 continue;
             }
@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
     for (unsigned int i = 0; i < ping_nb; i++) {
         z_clock_t measure_start = z_clock_now();
         z_closure(&callback, reply_handler, NULL, NULL);
-        if (z_querier_get(z_loan(que), NULL, z_move(callback), NULL) != 0) {
+        if (z_querier_get(z_loan(que), NULL, z_move(callback), NULL) < 0) {
             printf("Tx failed");
             continue;
         }
@@ -174,7 +174,9 @@ static int parse_args(int argc, char **argv, z_owned_config_t *config, unsigned 
 
 #else
 int main(void) {
-    printf("ERROR: Zenoh pico was compiled without Z_FEATURE_PUBLICATION but this example requires it.\n");
+    printf(
+        "ERROR: Zenoh pico was compiled without Z_FEATURE_QUERY, Z_FEATURE_MULTI_THREAD or Z_FEATURE_UNSTABLE_API but "
+        "this example requires it.\n");
     return -2;
 }
 #endif

@@ -24,7 +24,6 @@
 #include "zenoh-pico/protocol/definitions/interest.h"
 #include "zenoh-pico/protocol/definitions/message.h"
 #include "zenoh-pico/protocol/ext.h"
-#include "zenoh-pico/protocol/keyexpr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,7 +84,7 @@ typedef _z_qos_t _z_n_qos_t;
 static inline _z_qos_t _z_n_qos_create(bool express, z_congestion_control_t congestion_control, z_priority_t priority) {
     _z_n_qos_t ret;
     bool nodrop = congestion_control == Z_CONGESTION_CONTROL_DROP ? 0 : 1;
-    ret._val = (uint8_t)((express << 4) | (nodrop << 3) | priority);
+    ret._val = (uint8_t)((express << 4) | (nodrop << 3) | (uint8_t)priority);
     return ret;
 }
 static inline z_priority_t _z_n_qos_get_priority(_z_n_qos_t n_qos) {
@@ -134,7 +133,7 @@ extern const _z_qos_t _Z_N_QOS_DEFAULT;
 //
 typedef struct {
     _z_zint_t _rid;
-    _z_keyexpr_t _key;
+    _z_wireexpr_t _key;
     _z_timestamp_t _ext_timestamp;
     _z_n_qos_t _ext_qos;
     z_query_target_t _ext_target;
@@ -206,7 +205,7 @@ void _z_n_msg_response_final_clear(_z_n_msg_response_final_t *msg);
 // +---------------+
 //
 typedef struct {
-    _z_keyexpr_t _key;
+    _z_wireexpr_t _key;
     _z_timestamp_t _timestamp;
     _z_n_qos_t _qos;
     _z_push_body_t _body;
@@ -217,7 +216,7 @@ void _z_n_msg_push_clear(_z_n_msg_push_t *msg);
 typedef struct {
     _z_timestamp_t _ext_timestamp;
     _z_zint_t _request_id;
-    _z_keyexpr_t _key;
+    _z_wireexpr_t _key;
     _z_n_qos_t _ext_qos;
     struct {
         _z_id_t _zid;
@@ -235,13 +234,26 @@ typedef struct {
 void _z_n_msg_response_clear(_z_n_msg_response_t *msg);
 
 /*------------------ Declare Message ------------------*/
+typedef struct {
+    uint32_t value;
+    bool has_value;
+} _z_optional_id_t;
+static inline _z_optional_id_t _z_optional_id_make_some(uint32_t value) {
+    _z_optional_id_t id;
+    id.value = value;
+    id.has_value = true;
+    return id;
+}
+static inline _z_optional_id_t _z_optional_id_make_none(void) {
+    _z_optional_id_t id = {0};
+    return id;
+}
 
 typedef struct {
     _z_declaration_t _decl;
     _z_timestamp_t _ext_timestamp;
     _z_n_qos_t _ext_qos;
-    uint32_t _interest_id;
-    bool has_interest_id;
+    _z_optional_id_t _interest_id;
 } _z_n_msg_declare_t;
 static inline void _z_n_msg_declare_clear(_z_n_msg_declare_t *msg) { _z_declaration_clear(&msg->_decl); }
 
@@ -284,6 +296,40 @@ typedef struct {
 } _z_n_msg_interest_t;
 static inline void _z_n_msg_interest_clear(_z_n_msg_interest_t *msg) { _z_interest_clear(&msg->_interest); }
 
+/*------------------ OAM Message ------------------*/
+
+/// Flags:
+/// - E |: Encoding     The encoding of the extension
+/// - E/
+/// - Z: Extension      If Z==1 then at least one extension is present
+///
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// |Z|ENC|  OAM    |
+/// +-+-+-+---------+
+/// ~    id:z16     ~
+/// +---------------+
+/// ~  [oam_exts]   ~  if Z==1
+/// +---------------+
+/// %    length     %  If ENC == Z64 || ENC == ZBuf (z32)
+/// +---------------+
+/// ~     [u8]      ~  If ENC == ZBuf
+/// +---------------+
+///
+/// Encoding:
+/// - 0b00: Unit
+/// - 0b01: Z64
+/// - 0b10: ZBuf
+/// - 0b11: Reserved
+typedef struct {
+    uint16_t _id;
+    _z_timestamp_t _ext_timestamp;
+    _z_n_qos_t _ext_qos;
+    enum { _Z_OAM_BODY_UNIT, _Z_OAM_BODY_ZINT, _Z_OAM_BODY_ZBUF } _enc;
+    _z_msg_ext_body_t _body;
+} _z_n_msg_oam_t;
+void _z_n_msg_oam_clear(_z_n_msg_oam_t *msg);
+
 /*------------------ Zenoh Message ------------------*/
 typedef union {
     _z_n_msg_declare_t _declare;
@@ -292,9 +338,10 @@ typedef union {
     _z_n_msg_response_t _response;
     _z_n_msg_response_final_t _response_final;
     _z_n_msg_interest_t _interest;
+    _z_n_msg_oam_t _oam;
 } _z_network_body_t;
 typedef struct {
-    enum { _Z_N_DECLARE, _Z_N_PUSH, _Z_N_REQUEST, _Z_N_RESPONSE, _Z_N_RESPONSE_FINAL, _Z_N_INTEREST } _tag;
+    enum { _Z_N_DECLARE, _Z_N_PUSH, _Z_N_REQUEST, _Z_N_RESPONSE, _Z_N_RESPONSE_FINAL, _Z_N_INTEREST, _Z_N_OAM } _tag;
     _z_network_body_t _body;
     z_reliability_t _reliability;
 } _z_network_message_t;
@@ -303,29 +350,32 @@ void _z_n_msg_clear(_z_network_message_t *m);
 void _z_n_msg_free(_z_network_message_t **m);
 inline static void _z_msg_clear(_z_zenoh_message_t *msg) { _z_n_msg_clear(msg); }
 inline static void _z_msg_free(_z_zenoh_message_t **msg) { _z_n_msg_free(msg); }
-_Z_ELEM_DEFINE(_z_network_message, _z_network_message_t, _z_noop_size, _z_n_msg_clear, _z_noop_copy, _z_noop_move)
+z_result_t _z_n_msg_copy(_z_network_message_t *dst, const _z_network_message_t *src);
+_z_network_message_t *_z_n_msg_clone(const _z_network_message_t *src);
+
+_Z_ELEM_DEFINE(_z_network_message, _z_network_message_t, _z_noop_size, _z_n_msg_clear, _z_n_msg_copy, _z_noop_move,
+               _z_noop_eq, _z_noop_cmp, _z_noop_hash)
 _Z_SVEC_DEFINE(_z_network_message, _z_network_message_t)
-_Z_LIST_DEFINE(_z_network_message, _z_network_message_t)
+_Z_SLIST_DEFINE(_z_network_message, _z_network_message_t, true)
 
 void _z_n_msg_make_response_final(_z_network_message_t *msg, _z_zint_t rid);
-void _z_n_msg_make_declare(_z_network_message_t *msg, _z_declaration_t declaration, bool has_interest_id,
-                           uint32_t interest_id);
-void _z_n_msg_make_query(_z_zenoh_message_t *msg, const _z_keyexpr_t *key, const _z_slice_t *parameters, _z_zint_t qid,
+void _z_n_msg_make_declare(_z_network_message_t *msg, _z_declaration_t declaration, _z_optional_id_t interest_id);
+void _z_n_msg_make_query(_z_zenoh_message_t *msg, const _z_wireexpr_t *key, const _z_slice_t *parameters, _z_zint_t qid,
                          z_reliability_t reliability, z_consolidation_mode_t consolidation, const _z_bytes_t *payload,
                          const _z_encoding_t *encoding, uint64_t timeout_ms, const _z_bytes_t *attachment,
                          _z_n_qos_t qos, const _z_source_info_t *source_info);
-void _z_n_msg_make_push_put(_z_network_message_t *dst, const _z_keyexpr_t *key, const _z_bytes_t *payload,
+void _z_n_msg_make_push_put(_z_network_message_t *dst, const _z_wireexpr_t *key, const _z_bytes_t *payload,
                             const _z_encoding_t *encoding, _z_n_qos_t qos, const _z_timestamp_t *timestamp,
                             const _z_bytes_t *attachment, z_reliability_t reliability,
                             const _z_source_info_t *source_info);
-void _z_n_msg_make_push_del(_z_network_message_t *dst, const _z_keyexpr_t *key, _z_n_qos_t qos,
+void _z_n_msg_make_push_del(_z_network_message_t *dst, const _z_wireexpr_t *key, _z_n_qos_t qos,
                             const _z_timestamp_t *timestamp, z_reliability_t reliability,
                             const _z_source_info_t *source_info);
-void _z_n_msg_make_reply_ok_put(_z_network_message_t *dst, const _z_id_t *zid, _z_zint_t rid, const _z_keyexpr_t *key,
+void _z_n_msg_make_reply_ok_put(_z_network_message_t *dst, const _z_id_t *zid, _z_zint_t rid, const _z_wireexpr_t *key,
                                 z_reliability_t reliability, z_consolidation_mode_t consolidation, _z_n_qos_t qos,
                                 const _z_timestamp_t *timestamp, const _z_source_info_t *source_info,
                                 const _z_bytes_t *payload, const _z_encoding_t *encoding, const _z_bytes_t *attachment);
-void _z_n_msg_make_reply_ok_del(_z_network_message_t *dst, const _z_id_t *zid, _z_zint_t rid, const _z_keyexpr_t *key,
+void _z_n_msg_make_reply_ok_del(_z_network_message_t *dst, const _z_id_t *zid, _z_zint_t rid, const _z_wireexpr_t *key,
                                 z_reliability_t reliability, z_consolidation_mode_t consolidation, _z_n_qos_t qos,
                                 const _z_timestamp_t *timestamp, const _z_source_info_t *source_info,
                                 const _z_bytes_t *attachment);
@@ -333,9 +383,6 @@ void _z_n_msg_make_reply_err(_z_network_message_t *dst, const _z_id_t *zid, _z_z
                              _z_n_qos_t qos, const _z_bytes_t *payload, const _z_encoding_t *encoding,
                              const _z_source_info_t *source_info);
 void _z_n_msg_make_interest(_z_network_message_t *msg, _z_interest_t interest);
-
-z_result_t _z_n_msg_copy(_z_network_message_t *dst, const _z_network_message_t *src);
-_z_network_message_t *_z_n_msg_clone(const _z_network_message_t *src);
 
 #ifdef __cplusplus
 }

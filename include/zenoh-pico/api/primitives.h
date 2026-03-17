@@ -23,11 +23,12 @@
 
 #include "olv_macros.h"
 #include "zenoh-pico/api/types.h"
+#include "zenoh-pico/collections/advanced_cache.h"
 #include "zenoh-pico/net/query.h"
 #include "zenoh-pico/net/session.h"
 #include "zenoh-pico/net/subscribe.h"
 #include "zenoh-pico/protocol/core.h"
-#include "zenoh-pico/protocol/keyexpr.h"
+#include "zenoh-pico/session/keyexpr.h"
 #include "zenoh-pico/session/session.h"
 #include "zenoh-pico/system/platform.h"
 
@@ -187,6 +188,71 @@ z_result_t z_keyexpr_concat(z_owned_keyexpr_t *key, const z_loaned_keyexpr_t *le
  *   ``0`` if creation successful, ``negative value`` otherwise.
  */
 z_result_t z_keyexpr_join(z_owned_keyexpr_t *key, const z_loaned_keyexpr_t *left, const z_loaned_keyexpr_t *right);
+
+/**
+ * Appends the suffix portion of a key expression to another key expression (automatically inserting '/').
+ *
+ * Only the suffix portion of the key expression is preserved. All other components of the resulting key
+ * expression will be discarded.
+ * The resulting key expression is automatically canonized.
+ *
+ * Parameters:
+ *   prefix: Pointer to :c:type:`z_owned_keyexpr_t` to the key expression to append to.
+ *   right: Pointer to :c:type:`z_loaned_keyexpr_t` whose suffix will be appended.
+ *
+ * Return:
+ *   ``0`` if the append was successful; a ``negative value`` otherwise.
+ */
+z_result_t _z_keyexpr_append_suffix(z_owned_keyexpr_t *prefix, const z_loaned_keyexpr_t *right);
+
+/**
+ * Appends a string segment to a key expression (automatically inserting '/'). The resulting key expression is
+ * automatically canonized.
+ *
+ * Parameters:
+ *   prefix: Pointer to :c:type:`z_owned_keyexpr_t` to the key expression to append to.
+ *   right: Pointer to a character array representing the string to append.
+ *   len: Length of the string segment in ``right`` to append.
+ *
+ * Return:
+ *   ``0`` if append successful, ``negative value`` otherwise.
+ */
+z_result_t _z_keyexpr_append_substr(z_owned_keyexpr_t *prefix, const char *right, size_t len);
+
+/**
+ * Appends a null-terminated string to a key expression (automatically inserting '/'). The resulting key expression is
+ * automatically canonized.
+ *
+ * Parameters:
+ *   prefix: Pointer to :c:type:`z_owned_keyexpr_t` to the key expression to append to.
+ *   right: Pointer to a null-terminated string to append.
+ *
+ * Return:
+ *   ``0`` if append successful, ``negative value`` otherwise.
+ */
+static inline z_result_t _z_keyexpr_append_str(z_owned_keyexpr_t *prefix, const char *right) {
+    // SAFETY: right is documented to be null-terminated.
+    // Flawfinder: ignore [CWE-126]
+    return _z_keyexpr_append_substr(prefix, right, right ? strlen(right) : 0);
+}
+
+/**
+ * Appends multiple null-terminated strings to a key expression (automatically inserting '/' between each component).
+ * The resulting key expression is automatically canonized.
+ *
+ * Parameters:
+ *   prefix: Pointer to :c:type:`z_owned_keyexpr_t` representing the key expression to append to.
+ *   strs: Array of ``count`` null-terminated strings to append, in order.
+ *   count: Number of strings in the array.
+ *
+ * Return:
+ *   ``0`` if all appends were successful, ``negative value`` if any append failed.
+ */
+z_result_t _z_keyexpr_append_str_array(z_owned_keyexpr_t *prefix, const char *strs[], size_t count);
+
+#define _Z_KEYEXPR_APPEND_STR_ARRAY(prefix, ...)                       \
+    _z_keyexpr_append_str_array(prefix, (const char *[]){__VA_ARGS__}, \
+                                sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char *))
 
 /**
  * Returns the relation between `left` and `right` from the `left`'s point of view.
@@ -910,36 +976,41 @@ z_id_t z_entity_global_id_zid(const z_entity_global_id_t *gid);
  * Constructs a new source info.
  *
  * Parameters:
- *   info: An uninitialized :c:type:`z_owned_source_info_t`.
- *   source_id: Pointer to a :c:type:`z_entity_global_id_t` global entity id.
+ *   source_id: Non-null pointer to a :c:type:`z_entity_global_id_t` global entity id.
  *   source_sn: :c:type:`uint32_t` sequence number.
  *
  * Return:
- *   ``0`` if construction is successful, ``negative value`` otherwise.
+ *   Source info.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
-z_result_t z_source_info_new(z_owned_source_info_t *info, const z_entity_global_id_t *source_id, uint32_t source_sn);
+z_source_info_t z_source_info_new(const z_entity_global_id_t *source_id, uint32_t source_sn);
 
 /**
  * Returns the sequence number associated with this source info.
  *
  * Parameters:
- *   info: Pointer to the :c:type:`z_loaned_source_info_t` to get the parameters from.
+ *   info: Pointer to the :c:type:`z_source_info_t` to get the sequence number from.
  *
  * Return:
  *   :c:type:`uint32_t` sequence number.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
-uint32_t z_source_info_sn(const z_loaned_source_info_t *info);
+uint32_t z_source_info_sn(const z_source_info_t *info);
 
 /**
- * Returns the sequence number associated with this source info.
+ * Returns the id associated with this source info.
  *
  * Parameters:
- *   info: Pointer to the :c:type:`z_loaned_source_info_t` to get the parameters from.
+ *   info: Pointer to the :c:type:`z_source_info_t` to get the id from.
  *
  * Return:
  *   Global entity ID as a :c:type:`z_entity_global_id_t`.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
-z_entity_global_id_t z_source_info_id(const z_loaned_source_info_t *info);
+z_entity_global_id_t z_source_info_id(const z_source_info_t *info);
 
 /**
  * Builds a default query target.
@@ -1054,8 +1125,19 @@ const z_loaned_bytes_t *z_query_attachment(const z_loaned_query_t *query);
 const z_loaned_keyexpr_t *z_query_keyexpr(const z_loaned_query_t *query);
 
 /**
+ * Gets a query source info by aliasing it.
+ *
+ * Parameters:
+ *   query: Pointer to the :c:type:`z_loaned_query_t` to get the value from.
+ *
+ * Return:
+ *   Pointer to the source info as a :c:type:`z_source_info_t`. Will return NULL if source info was not set by querier.
+ */
+const z_source_info_t *z_query_source_info(const z_loaned_query_t *query);
+
+/**
  * Builds a new sample closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_sample_t`.
@@ -1080,7 +1162,7 @@ void z_closure_sample_call(const z_loaned_closure_sample_t *closure, z_loaned_sa
 
 /**
  * Builds a new query closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_query_t`.
@@ -1105,7 +1187,7 @@ void z_closure_query_call(const z_loaned_closure_query_t *closure, z_loaned_quer
 
 /**
  * Builds a new reply closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_reply_t`.
@@ -1130,7 +1212,7 @@ void z_closure_reply_call(const z_loaned_closure_reply_t *closure, z_loaned_repl
 
 /**
  * Builds a new hello closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_hello_t`.
@@ -1155,7 +1237,7 @@ void z_closure_hello_call(const z_loaned_closure_hello_t *closure, z_loaned_hell
 
 /**
  * Builds a new zid closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_zid_t`.
@@ -1180,7 +1262,7 @@ void z_closure_zid_call(const z_loaned_closure_zid_t *closure, const z_id_t *id)
 
 /**
  * Builds a new matching status closure.
- * It consists on a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
  *
  * Parameters:
  *   closure: Pointer to an uninitialized :c:type:`z_owned_closure_matching_status_t`.
@@ -1205,6 +1287,35 @@ z_result_t z_closure_matching_status(z_owned_closure_matching_status_t *closure,
 void z_closure_matching_status_call(const z_loaned_closure_matching_status_t *closure,
                                     const z_matching_status_t *status);
 
+/**
+ * Builds a new sample miss closure.
+ * It consists of a structure that contains all the elements for stateful, memory-leak-free callbacks.
+ *
+ * Parameters:
+ *   closure: Pointer to an uninitialized :c:type:`ze_owned_closure_miss_t`.
+ *   call: Pointer to the callback function. ``context`` will be passed as its last argument.
+ *   drop: Pointer to the function that will free the callback state. ``context`` will be passed as its last argument.
+ *   context: Pointer to an arbitrary state.
+ *
+ * Return:
+ *   ``0`` in case of success, negative error code otherwise
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t ze_closure_miss(ze_owned_closure_miss_t *closure, ze_closure_miss_callback_t call,
+                           z_closure_drop_callback_t drop, void *context);
+
+/**
+ * Calls a sample miss closure.
+ *
+ * Parameters:
+ *   closure: Pointer to the :c:type:`ze_loaned_closure_miss_t` to call.
+ *   status: Pointer to the :c:type:`ze_miss_t` to pass to the closure.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+void ze_closure_miss_call(const ze_loaned_closure_miss_t *closure, const ze_miss_t *miss);
+
 /**************** Loans ****************/
 _Z_OWNED_FUNCTIONS_DEF(string)
 _Z_OWNED_FUNCTIONS_DEF(keyexpr)
@@ -1219,7 +1330,6 @@ _Z_OWNED_FUNCTIONS_DEF(hello)
 _Z_OWNED_FUNCTIONS_DEF(reply)
 _Z_OWNED_FUNCTIONS_DEF(string_array)
 _Z_OWNED_FUNCTIONS_DEF(sample)
-_Z_OWNED_FUNCTIONS_DEF(source_info)
 _Z_OWNED_FUNCTIONS_DEF(query)
 _Z_OWNED_FUNCTIONS_DEF(slice)
 _Z_OWNED_FUNCTIONS_DEF(bytes)
@@ -1227,12 +1337,15 @@ _Z_OWNED_FUNCTIONS_NO_COPY_DEF(bytes_writer)
 _Z_OWNED_FUNCTIONS_DEF(reply_err)
 _Z_OWNED_FUNCTIONS_DEF(encoding)
 
+_Z_OWNED_FUNCTIONS_DEF(cancellation_token)
+
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_sample)
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_query)
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_reply)
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_hello)
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_zid)
 _Z_OWNED_FUNCTIONS_CLOSURE_DEF(closure_matching_status)
+_Z_OWNED_FUNCTIONS_CLOSURE_DEF_PREFIX(ze, closure_miss)
 
 _Z_VIEW_FUNCTIONS_DEF(keyexpr)
 _Z_VIEW_FUNCTIONS_DEF(string)
@@ -1347,6 +1460,7 @@ const z_loaned_slice_t *z_string_as_slice(const z_loaned_string_t *str);
  */
 z_priority_t z_priority_default(void);
 
+#if Z_FEATURE_SCOUTING == 1
 /**
  * Returns id of Zenoh entity that transmitted hello message.
  *
@@ -1407,6 +1521,7 @@ void z_hello_locators(const z_loaned_hello_t *hello, z_owned_string_array_t *loc
 z_result_t z_whatami_to_view_string(z_whatami_t whatami, z_view_string_t *str_out);
 
 /************* Primitives **************/
+
 /**
  * Scouts for other Zenoh entities like routers and/or peers.
  *
@@ -1421,6 +1536,15 @@ z_result_t z_whatami_to_view_string(z_whatami_t whatami, z_view_string_t *str_ou
 z_result_t z_scout(z_moved_config_t *config, z_moved_closure_hello_t *callback, const z_scout_options_t *options);
 
 /**
+ * Builds a :c:type:`z_scout_options_t` with default value.
+ *
+ * Parameters:
+ *   options: Pointer to an uninitialized :c:type:`z_scout_options_t`.
+ */
+void z_scout_options_default(z_scout_options_t *options);
+#endif
+
+/**
  * Opens a Zenoh session.
  *
  * Parameters:
@@ -1432,6 +1556,11 @@ z_result_t z_scout(z_moved_config_t *config, z_moved_closure_hello_t *callback, 
  *   ``0`` if open is successful, ``negative value`` otherwise.
  */
 z_result_t z_open(z_owned_session_t *zs, z_moved_config_t *config, const z_open_options_t *options);
+
+/**
+ * Builds a :c:type:`z_open_options_t` with default value.
+ */
+void z_open_options_default(z_open_options_t *options);
 
 /**
  * Closes a Zenoh session.
@@ -1456,6 +1585,19 @@ z_result_t z_close(z_loaned_session_t *zs, const z_close_options_t *options);
  */
 bool z_session_is_closed(const z_loaned_session_t *zs);
 
+#ifdef Z_FEATURE_UNSTABLE_API
+/**
+ * Gets the entity global Id of Zenoh session (unstable).
+ *
+ *
+ * Parameters:
+ *   zs: Pointer to a :c:type:`z_loaned_session_t` to get the id from.
+ *
+ * Return:
+ *   The entity global Id of the session as :c:type:`z_entity_t`.
+ */
+z_entity_global_id_t z_session_id(const z_loaned_session_t *zs);
+#endif
 /**
  * Fetches Zenoh IDs of all connected peers.
  *
@@ -1587,9 +1729,11 @@ z_reliability_t z_sample_reliability(const z_loaned_sample_t *sample);
  *   sample: Pointer to a :c:type:`z_loaned_sample_t` to get the source info from.
  *
  * Return:
- *   The source info wrapped as a :c:type:`z_loaned_source_info_t`.
+ *   The source info wrapped as a :c:type:`z_source_info_t`. Will return NULL if source info was not set by sender.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
-const z_loaned_source_info_t *z_sample_source_info(const z_loaned_sample_t *sample);
+const z_source_info_t *z_sample_source_info(const z_loaned_sample_t *sample);
 #endif
 
 /**
@@ -1748,6 +1892,14 @@ void z_publisher_delete_options_default(z_publisher_delete_options_t *options);
 z_result_t z_publisher_put(const z_loaned_publisher_t *pub, z_moved_bytes_t *payload,
                            const z_publisher_put_options_t *options);
 
+#if Z_FEATURE_ADVANCED_PUBLICATION == 1
+z_result_t _z_publisher_put_impl(const z_loaned_publisher_t *pub, z_moved_bytes_t *payload,
+                                 const z_publisher_put_options_t *options, _ze_advanced_cache_t *cache);
+#else
+z_result_t _z_publisher_put_impl(const z_loaned_publisher_t *pub, z_moved_bytes_t *payload,
+                                 const z_publisher_put_options_t *options);
+#endif
+
 /**
  * Deletes data from the keyexpr bound to the given publisher.
  *
@@ -1759,6 +1911,13 @@ z_result_t z_publisher_put(const z_loaned_publisher_t *pub, z_moved_bytes_t *pay
  *   ``0`` if delete operation is successful, ``negative value`` otherwise.
  */
 z_result_t z_publisher_delete(const z_loaned_publisher_t *pub, const z_publisher_delete_options_t *options);
+
+#if Z_FEATURE_ADVANCED_PUBLICATION == 1
+z_result_t _z_publisher_delete_impl(const z_loaned_publisher_t *pub, const z_publisher_delete_options_t *options,
+                                    _ze_advanced_cache_t *cache);
+#else
+z_result_t _z_publisher_delete_impl(const z_loaned_publisher_t *pub, const z_publisher_delete_options_t *options);
+#endif
 
 /**
  * Gets the keyexpr from a publisher.
@@ -1779,7 +1938,9 @@ const z_loaned_keyexpr_t *z_publisher_keyexpr(const z_loaned_publisher_t *publis
  *   publisher: Pointer to a :c:type:`z_loaned_publisher_t` to get the entity global Id from.
  *
  * Return:
- *   The entity gloabl Id wrapped as a :c:type:`z_entity_global_global_id_t`.
+ *   The entity gloabl Id wrapped as a :c:type:`z_entity_global_id_t`.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_entity_global_id_t z_publisher_id(const z_loaned_publisher_t *publisher);
 #endif
@@ -1796,8 +1957,6 @@ z_entity_global_id_t z_publisher_id(const z_loaned_publisher_t *publisher);
  *
  * Return:
  *   ``0`` if execution was successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_publisher_declare_background_matching_listener(const z_loaned_publisher_t *publisher,
                                                             z_moved_closure_matching_status_t *callback);
@@ -1813,8 +1972,6 @@ z_result_t z_publisher_declare_background_matching_listener(const z_loaned_publi
  *
  * Return:
  *   ``0`` if execution was successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_publisher_declare_matching_listener(const z_loaned_publisher_t *publisher,
                                                  z_owned_matching_listener_t *matching_listener,
@@ -1824,8 +1981,6 @@ z_result_t z_publisher_declare_matching_listener(const z_loaned_publisher_t *pub
  *
  * Return:
  *   ``0`` if execution was successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_publisher_get_matching_status(const z_loaned_publisher_t *publisher, z_matching_status_t *matching_status);
 
@@ -1869,18 +2024,31 @@ void z_get_options_default(z_get_options_t *options);
 z_result_t z_get(const z_loaned_session_t *zs, const z_loaned_keyexpr_t *keyexpr, const char *parameters,
                  z_moved_closure_reply_t *callback, z_get_options_t *options);
 
-#ifdef Z_FEATURE_UNSTABLE_API
+/**
+ * Sends a distributed query for a given keyexpr.
+ *
+ * Parameters:
+ *   zs: Pointer to a :c:type:`z_loaned_session_t` to send the query through.
+ *   keyexpr: Pointer to a  :c:type:`z_loaned_keyexpr_t` to send the query for.
+ *   parameters: Pointer to the parameters string.
+ *   parameters_len: Length of the parameters string.
+ *   callback: Moved :c:type:`z_owned_closure_reply_t` callback.
+ *   options: Pointer to a :c:type:`z_get_options_t` to configure the operation.
+ *
+ * Return:
+ *   ``0`` if put operation is successful, ``negative value`` otherwise.
+ */
+z_result_t z_get_with_parameters_substr(const z_loaned_session_t *zs, const z_loaned_keyexpr_t *keyexpr,
+                                        const char *parameters, size_t parameters_len,
+                                        z_moved_closure_reply_t *callback, z_get_options_t *options);
+
 /**
  *  Constructs the default value for :c:type:`z_querier_get_options_t`.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 void z_querier_get_options_default(z_querier_get_options_t *options);
 
 /**
  *  Constructs the default value for :c:type:`z_querier_options_t`.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 void z_querier_options_default(z_querier_options_t *options);
 
@@ -1897,8 +2065,6 @@ void z_querier_options_default(z_querier_options_t *options);
  *
  * Return:
  *   ``0`` if put operation is successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 
 z_result_t z_declare_querier(const z_loaned_session_t *zs, z_owned_querier_t *querier,
@@ -1916,23 +2082,39 @@ z_result_t z_undeclare_querier(z_moved_querier_t *querier);
  *
  * Parameters:
  *   querier: The querier to make query from.
- *   parameters: The query's parameters, similar to a url's query segment.
+ *   parameters: The query's parameters null-terminated string, similar to a url's query segment.
  *   callback: The callback function that will be called on reception of replies for this query. It will be
  * 				automatically dropped once all replies are processed.
  *   options: Additional options for the get. All owned fields will be consumed.
  *
  * Return:
  *   ``0`` if put operation is successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_querier_get(const z_loaned_querier_t *querier, const char *parameters, z_moved_closure_reply_t *callback,
                          z_querier_get_options_t *options);
 
 /**
- *  Returns the key expression of the querier.
+ * Query data from the matching queryables in the system.
  *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ * Replies are provided through a callback function.
+ *
+ * Parameters:
+ *   querier: The querier to make query from.
+ *   parameters: The query's parameters string, similar to a url's query segment.
+ *   parameters_len: Length of the parameters string
+ *   callback: The callback function that will be called on reception of replies for this query. It will be
+ * 				automatically dropped once all replies are processed.
+ *   options: Additional options for the get. All owned fields will be consumed.
+ *
+ * Return:
+ *   ``0`` if put operation is successful, ``negative value`` otherwise.
+ */
+z_result_t z_querier_get_with_parameters_substr(const z_loaned_querier_t *querier, const char *parameters,
+                                                size_t parameters_len, z_moved_closure_reply_t *callback,
+                                                z_querier_get_options_t *options);
+
+/**
+ *  Returns the key expression of the querier.
  */
 const z_loaned_keyexpr_t *z_querier_keyexpr(const z_loaned_querier_t *querier);
 
@@ -1961,8 +2143,6 @@ z_entity_global_id_t z_querier_id(const z_loaned_querier_t *querier);
  *
  * Return:
  *   ``0`` if put operation is successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_querier_declare_background_matching_listener(const z_loaned_querier_t *querier,
                                                           z_moved_closure_matching_status_t *callback);
@@ -1979,8 +2159,6 @@ z_result_t z_querier_declare_background_matching_listener(const z_loaned_querier
  *
  * Return:
  *   ``0`` if put operation is successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_querier_declare_matching_listener(const z_loaned_querier_t *querier,
                                                z_owned_matching_listener_t *matching_listener,
@@ -1990,14 +2168,10 @@ z_result_t z_querier_declare_matching_listener(const z_loaned_querier_t *querier
  *
  * Return:
  *   ``0`` if put operation is successful, ``negative value`` otherwise.
- *
- * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_result_t z_querier_get_matching_status(const z_loaned_querier_t *querier, z_matching_status_t *matching_status);
 
 #endif  // Z_FEATURE_MATCHING == 1
-
-#endif  // Z_FEATURE_UNSTABLE_API
 
 /**
  * Checks if queryable answered with an OK, which allows this value to be treated as a sample.
@@ -2046,7 +2220,7 @@ const z_loaned_reply_err_t *z_reply_err(const z_loaned_reply_t *reply);
  * Return:
  * 	 `true` if id is present
  */
-bool z_reply_replier_id(const z_loaned_reply_t *reply, z_id_t *out_id);
+bool z_reply_replier_id(const z_loaned_reply_t *reply, z_entity_global_id_t *out_id);
 #endif  // Z_FEATURE_UNSTABLE_API
 
 #endif  // Z_FEATURE_QUERY == 1
@@ -2133,6 +2307,9 @@ void z_query_reply_options_default(z_query_reply_options_t *options);
 z_result_t z_query_reply(const z_loaned_query_t *query, const z_loaned_keyexpr_t *keyexpr, z_moved_bytes_t *payload,
                          const z_query_reply_options_t *options);
 
+z_result_t _z_query_reply_sample(const z_loaned_query_t *query, z_loaned_sample_t *sample,
+                                 const z_query_reply_options_t *options);
+
 z_result_t z_query_take_from_loaned(z_owned_query_t *dst, z_loaned_query_t *src);
 
 /**
@@ -2211,6 +2388,7 @@ z_entity_global_id_t z_queryable_id(const z_loaned_queryable_t *queryable);
  * Return:
  *   The keyexpr wrapped as a :c:type:`z_loaned_keyexpr_t`. Will return NULL if
  *   corresponding session is closed or dropped.
+ *   The lifetime of key expression pointer is bound to those of queryable and its session.
  */
 const z_loaned_keyexpr_t *z_queryable_keyexpr(const z_loaned_queryable_t *queryable);
 
@@ -2411,9 +2589,26 @@ z_result_t z_declare_background_subscriber(const z_loaned_session_t *zs, const z
  *   subscriber: Pointer to a :c:type:`z_loaned_subscriber_t` to get the keyexpr from.
  *
  * Return:
- *   The keyexpr wrapped as a :c:type:`z_loaned_keyexpr_t`.
+ *   The keyexpr wrapped as a :c:type:`z_loaned_keyexpr_t`. Will return `NULL` if corresponding session
+ *   is closed or dropped.
+ *   The lifetime of key expression pointer is bound to those of subscriber and its session.
  */
 const z_loaned_keyexpr_t *z_subscriber_keyexpr(const z_loaned_subscriber_t *subscriber);
+
+#if defined(Z_FEATURE_UNSTABLE_API)
+/**
+ * Gets the entity global Id from a subscriber.
+ *
+ * Parameters:
+ *   subscriber: Pointer to a :c:type:`z_loaned_subscriber_t` to get the entity global Id from.
+ *
+ * Return:
+ *   The entity gloabl Id wrapped as a :c:type:`z_entity_global_global_id_t`.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_entity_global_id_t z_subscriber_id(const z_loaned_subscriber_t *subscriber);
+#endif
 #endif
 
 #if Z_FEATURE_BATCHING == 1
@@ -2492,6 +2687,11 @@ z_result_t zp_start_read_task(z_loaned_session_t *zs, const zp_task_read_options
 z_result_t zp_stop_read_task(z_loaned_session_t *zs);
 
 /**
+ * Returns whether the read task is currently running for the given session.
+ */
+bool zp_read_task_is_running(const z_loaned_session_t *zs);
+
+/**
  * Builds a :c:type:`zp_task_lease_options_t` with default value.
  *
  * Parameters:
@@ -2529,6 +2729,11 @@ z_result_t zp_start_lease_task(z_loaned_session_t *zs, const zp_task_lease_optio
  */
 z_result_t zp_stop_lease_task(z_loaned_session_t *zs);
 
+/**
+ * Returns whether the lease task is currently running for the given session.
+ */
+bool zp_lease_task_is_running(const z_loaned_session_t *zs);
+
 /************* Single Thread helpers **************/
 /**
  * Builds a :c:type:`zp_read_options_t` with default value.
@@ -2537,6 +2742,63 @@ z_result_t zp_stop_lease_task(z_loaned_session_t *zs);
  *   options: Pointer to an uninitialized :c:type:`zp_read_options_t`.
  */
 void zp_read_options_default(zp_read_options_t *options);
+
+#ifdef Z_FEATURE_UNSTABLE_API
+#if Z_FEATURE_PERIODIC_TASKS == 1
+/**
+ * Builds a :c:type:`zp_task_periodic_scheduler_options_t` with default value.
+ *
+ * Parameters:
+ *   options: Pointer to an uninitialized :c:type:`zp_task_periodic_scheduler_options_t`.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+void zp_task_periodic_scheduler_options_default(zp_task_periodic_scheduler_options_t *options);
+
+/**
+ * Starts the periodic scheduler task for a session.
+ *
+ * The periodic scheduler task executes registered periodic jobs according
+ * to their configured intervals. Jobs are added and removed via the scheduler API.
+ *
+ * The scheduler runs in a background task (thread, process, or equivalent)
+ * whose implementation is platform-dependent.
+ *
+ * Parameters:
+ *   zs: Pointer to a :c:type:`z_loaned_session_t` whose scheduler to start.
+ *   options: Pointer to a :c:type:`zp_task_periodic_scheduler_options_t` structure
+ *            used to configure the scheduler task.
+ *
+ * Return:
+ *   ``0`` if the scheduler task started successfully, ``negative value`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t zp_start_periodic_scheduler_task(z_loaned_session_t *zs,
+                                            const zp_task_periodic_scheduler_options_t *options);
+
+/**
+ * Stops the periodic scheduler task for a session.
+ *
+ * This halts execution of all registered periodic jobs. Depending on the target
+ * platform, this may involve stopping a thread, process, or equivalent.
+ *
+ * Parameters:
+ *   zs: Pointer to a :c:type:`z_loaned_session_t` whose scheduler to stop.
+ *
+ * Return:
+ *   ``0`` if the scheduler task stopped successfully, ``negative value`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t zp_stop_periodic_scheduler_task(z_loaned_session_t *zs);
+
+/**
+ * Returns whether the periodic scheduler task is currently running for the given session.
+ */
+bool zp_periodic_scheduler_task_is_running(const z_loaned_session_t *zs);
+#endif
+#endif
 
 /**
  * Executes a single read from the network and process received messages.
@@ -2579,14 +2841,6 @@ z_result_t zp_send_keep_alive(const z_loaned_session_t *zs, const zp_send_keep_a
 void zp_send_join_options_default(zp_send_join_options_t *options);
 
 /**
- * Builds a :c:type:`z_scout_options_t` with default value.
- *
- * Parameters:
- *   options: Pointer to an uninitialized :c:type:`z_scout_options_t`.
- */
-void z_scout_options_default(z_scout_options_t *options);
-
-/**
  * Executes a single send join procedure.
  *
  * Parameters:
@@ -2599,6 +2853,21 @@ void z_scout_options_default(z_scout_options_t *options);
 z_result_t zp_send_join(const z_loaned_session_t *zs, const zp_send_join_options_t *options);
 
 #ifdef Z_FEATURE_UNSTABLE_API
+#if Z_FEATURE_PERIODIC_TASKS == 1
+
+/**
+ * Process outstanding periodic tasks.
+ *
+ * Parameters:
+ *   zs: Pointer to a :c:type:`z_loaned_session_t` to process tasks for.
+ *
+ * Return:
+ *   ``0`` if execution was successful, ``negative value`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t zp_process_periodic_tasks(const z_loaned_session_t *zs);
+#endif
 /**
  * Gets the default reliability value (unstable).
  *
@@ -2608,6 +2877,51 @@ z_result_t zp_send_join(const z_loaned_session_t *zs, const zp_send_join_options
  * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
  */
 z_reliability_t z_reliability_default(void);
+#endif
+
+#ifdef Z_FEATURE_UNSTABLE_API
+#if Z_FEATURE_QUERY == 1
+/**
+ * Construct a new cancellation token. Can be used to interrupt get operations.  (unstable).
+ *
+ * Parameters:
+ *   cancellation_token: Pointer to an uninitialized :c:type:`z_owned_cancellation_token_t`.
+ *
+ * Return:
+ *   ``0`` if creation successful, ``negative value`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t z_cancellation_token_new(z_owned_cancellation_token_t *cancellation_token);
+
+/**
+ * Interrupt all currently running get calls, to which clones of the token were passed.  (unstable).
+ *
+ * Parameters:
+ *   cancellation_token: Pointer to token to cancel.
+ *
+ * Return:
+ *   ``0`` in case of success (in this case all pending operations are guaranteed to be cancelled or terminated),
+ * ``negative error value`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+z_result_t z_cancellation_token_cancel(z_loaned_cancellation_token_t *cancellation_token);
+
+/**
+ * Verify if token was cancelled  (unstable).
+ *
+ * Parameters:
+ *   cancellation_token: Pointer to cancellation token.
+ *
+ * Return:
+ *   ``true`` if token was cancelled (i.e if :c:func:`z_cancellation_token_cancel` was called on it or one of its
+ * clones), ``false`` otherwise.
+ *
+ * .. warning:: This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+ */
+bool z_cancellation_token_is_cancelled(const z_loaned_cancellation_token_t *cancellation_token);
+#endif
 #endif
 
 #ifdef __cplusplus

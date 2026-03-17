@@ -18,7 +18,7 @@
 #include "zenoh-pico/net/liveliness.h"
 #include "zenoh-pico/net/primitives.h"
 #include "zenoh-pico/protocol/core.h"
-#include "zenoh-pico/protocol/keyexpr.h"
+#include "zenoh-pico/session/keyexpr.h"
 #include "zenoh-pico/utils/result.h"
 
 #if Z_FEATURE_LIVELINESS == 1
@@ -64,13 +64,7 @@ z_result_t z_liveliness_token_options_default(z_liveliness_token_options_t *opti
 z_result_t z_liveliness_declare_token(const z_loaned_session_t *zs, z_owned_liveliness_token_t *token,
                                       const z_loaned_keyexpr_t *keyexpr, const z_liveliness_token_options_t *options) {
     (void)options;
-#if Z_FEATURE_MULTICAST_DECLARATIONS == 0
-    _z_keyexpr_t key;
-    _z_keyexpr_alias_from_user_defined(&key, keyexpr);
-#else
-    _z_keyexpr_t key = _z_update_keyexpr_to_declared(_Z_RC_IN_VAL(zs), *keyexpr);
-#endif
-    return _z_declare_liveliness_token(zs, &token->_val, &key);
+    return _z_declare_liveliness_token(zs, &token->_val, keyexpr);
 }
 
 z_result_t z_liveliness_undeclare_token(z_moved_liveliness_token_t *token) {
@@ -88,8 +82,8 @@ z_result_t z_liveliness_subscriber_options_default(z_liveliness_subscriber_optio
 z_result_t z_liveliness_declare_subscriber(const z_loaned_session_t *zs, z_owned_subscriber_t *sub,
                                            const z_loaned_keyexpr_t *keyexpr, z_moved_closure_sample_t *callback,
                                            z_liveliness_subscriber_options_t *options) {
-    void *ctx = callback->_this._val.context;
-    callback->_this._val.context = NULL;
+    _z_closure_sample_t closure = callback->_this._val;
+    z_internal_closure_sample_null(&callback->_this);
 
     z_liveliness_subscriber_options_t opt;
     if (options == NULL) {
@@ -97,30 +91,10 @@ z_result_t z_liveliness_declare_subscriber(const z_loaned_session_t *zs, z_owned
     } else {
         opt = *options;
     }
-#if Z_FEATURE_MULTICAST_DECLARATIONS == 0
-    _z_keyexpr_t key;
-    _z_keyexpr_alias_from_user_defined(&key, keyexpr);
-#else
-    _z_keyexpr_t key = _z_update_keyexpr_to_declared(_Z_RC_IN_VAL(zs), *keyexpr);
-#endif
-    _z_subscriber_t int_sub = _z_declare_liveliness_subscriber(zs, &key, callback->_this._val.call,
-                                                               callback->_this._val.drop, opt.history, ctx);
 
-    z_internal_closure_sample_null(&callback->_this);
-    sub->_val = int_sub;
-
-    if (!_z_subscriber_check(&sub->_val)) {
-        return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
-    }
-
-    if (opt.history) {
-        z_result_t ret = _z_liveliness_subscription_trigger_history(_Z_RC_IN_VAL(zs), keyexpr, NULL);
-        if (ret != _Z_RES_OK) {
-            return ret;
-        }
-    }
-
-    return _Z_RES_OK;
+    sub->_val = _z_subscriber_null();
+    return _z_declare_liveliness_subscriber(&sub->_val, zs, keyexpr, closure.call, closure.drop, opt.history,
+                                            closure.context);
 }
 
 z_result_t z_liveliness_declare_background_subscriber(const z_loaned_session_t *zs, const z_loaned_keyexpr_t *keyexpr,
@@ -137,7 +111,10 @@ z_result_t z_liveliness_declare_background_subscriber(const z_loaned_session_t *
 
 #if Z_FEATURE_QUERY == 1
 z_result_t z_liveliness_get_options_default(z_liveliness_get_options_t *options) {
-    options->timeout_ms = Z_GET_TIMEOUT_DEFAULT;
+    options->timeout_ms = 0;
+#ifdef Z_FEATURE_UNSTABLE_API
+    options->cancellation_token = NULL;
+#endif
     return _Z_RES_OK;
 }
 
@@ -154,12 +131,22 @@ z_result_t z_liveliness_get(const z_loaned_session_t *zs, const z_loaned_keyexpr
     } else {
         opt = *options;
     }
+    if (opt.timeout_ms == 0) {
+        opt.timeout_ms = Z_GET_TIMEOUT_DEFAULT;
+    }
 
-    _z_keyexpr_t ke;
-    _z_keyexpr_alias_from_user_defined(&ke, keyexpr);
-    ret = _z_liveliness_query(_Z_RC_IN_VAL(zs), &ke, callback->_this._val.call, callback->_this._val.drop, ctx,
-                              opt.timeout_ms);
+    _z_cancellation_token_rc_t *cancellation_token = NULL;
+#ifdef Z_FEATURE_UNSTABLE_API
+    cancellation_token = opt.cancellation_token == NULL ? NULL : &opt.cancellation_token->_this._rc;
+#else
 
+#endif
+    ret = _z_liveliness_query(zs, keyexpr, callback->_this._val.call, callback->_this._val.drop, ctx, opt.timeout_ms,
+                              cancellation_token);
+
+#ifdef Z_FEATURE_UNSTABLE_API
+    z_cancellation_token_drop(opt.cancellation_token);
+#endif
     z_internal_closure_reply_null(
         &callback->_this);  // call and drop passed to _z_liveliness_query, so we nullify the closure here
     return ret;

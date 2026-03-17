@@ -64,7 +64,7 @@ z_result_t _z_uint8_encode(_z_wbuf_t *wbf, uint8_t u8) { return _z_wbuf_write(wb
 z_result_t _z_uint8_decode(uint8_t *u8, _z_zbuf_t *zbf) {
     if (!_z_zbuf_can_read(zbf)) {
         _Z_WARN("Not enough bytes to read");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *u8 = _z_zbuf_read(zbf);
     return _Z_RES_OK;
@@ -73,7 +73,7 @@ z_result_t _z_uint8_decode(uint8_t *u8, _z_zbuf_t *zbf) {
 z_result_t _z_uint8_decode_as_ref(uint8_t **u8, _z_zbuf_t *zbf) {
     if (!_z_zbuf_can_read(zbf)) {
         _Z_WARN("Not enough bytes to read");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *u8 = _z_zbuf_read_as_ref(zbf);
     return _Z_RES_OK;
@@ -87,7 +87,7 @@ z_result_t _z_uint16_encode(_z_wbuf_t *wbf, uint16_t val) {
 z_result_t _z_uint16_decode(uint16_t *u16, _z_zbuf_t *zbf) {
     if (_z_zbuf_len(zbf) < sizeof(uint16_t)) {
         _Z_WARN("Not enough bytes to read");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *u16 = _z_zbuf_read(zbf) + (uint16_t)(_z_zbuf_read(zbf) << 8);
     _z_host_u16_from_le_u16(u16);
@@ -134,7 +134,7 @@ uint8_t _z_zint64_encode_buf(uint8_t *buf, uint64_t v) {
     uint8_t len = 0;
     size_t start = 0;
     while ((lv & VLE_LEN1_MASK) != 0) {
-        uint8_t c = (lv & 0x7f) | 0x80;
+        uint8_t c = (uint8_t)((lv & 0x7f) | 0x80);
         buf[start++] = c;
         len++;
         lv = lv >> (uint64_t)7;
@@ -174,6 +174,7 @@ z_result_t _z_zsize_decode_with_reader(_z_zint_t *zint, __z_single_byte_reader_t
     z_result_t res = _z_zint64_decode_with_reader(&i, reader, context);
     if (res != _Z_RES_OK || i > SIZE_MAX) {
         _Z_INFO("Reader decode failed");
+        _Z_ERROR_LOG(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
         res = _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
     } else {
         *zint = (_z_zint_t)i;
@@ -203,7 +204,7 @@ z_result_t _z_zint16_decode(uint16_t *zint, _z_zbuf_t *zbf) {
     _Z_RETURN_IF_ERR(_z_zint64_decode(&buf, zbf));
     if (buf > UINT16_MAX) {
         _Z_WARN("Invalid zint16 value decoded");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *zint = (uint16_t)buf;
     return _Z_RES_OK;
@@ -214,7 +215,7 @@ z_result_t _z_zint32_decode(uint32_t *zint, _z_zbuf_t *zbf) {
     _Z_RETURN_IF_ERR(_z_zint64_decode(&buf, zbf));
     if (buf > UINT32_MAX) {
         _Z_WARN("Invalid zint32 value decoded");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *zint = (uint32_t)buf;
     return _Z_RES_OK;
@@ -225,7 +226,7 @@ z_result_t _z_zsize_decode(_z_zint_t *zint, _z_zbuf_t *zbf) {
     _Z_RETURN_IF_ERR(_z_zint64_decode(&buf, zbf));
     if (buf > SIZE_MAX) {
         _Z_WARN("Invalid zsize value decoded");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *zint = (_z_zint_t)buf;
     return _Z_RES_OK;
@@ -235,7 +236,7 @@ z_result_t _z_zsize_decode(_z_zint_t *zint, _z_zbuf_t *zbf) {
 z_result_t _z_buf_encode(_z_wbuf_t *wbf, const uint8_t *buf, size_t len) {
     z_result_t ret = _Z_RES_OK;
 
-    if ((wbf->_expansion_step != 0) && (len > Z_TSID_LENGTH)) {
+    if ((wbf->_expansion_step != 0) && (len > Z_ZID_LENGTH)) {
         ret |= _z_wbuf_wrap_bytes(wbf, buf, 0, len);
     } else {
         ret |= _z_wbuf_write_bytes(wbf, buf, 0, len);
@@ -253,7 +254,7 @@ z_result_t _z_bytes_decode(_z_bytes_t *bs, _z_zbuf_t *zbf, _z_arc_slice_t *arcs)
     _z_slice_t s;
     _Z_RETURN_IF_ERR(_z_slice_decode(&s, zbf));
     // Calc offset
-    size_t offset = _z_ptr_u8_diff(s.start, _Z_RC_IN_VAL(&zbf->_slice)->start);
+    size_t offset = _z_ptr_u8_diff(s.start, _z_slice_simple_rc_value(&zbf->_slice)->start);
     // Get ownership of subslice
     *arcs = _z_arc_slice_wrap_slice_rc(&zbf->_slice, offset, s.len);
     _z_bytes_alias_arc_slice(bs, arcs);
@@ -293,13 +294,13 @@ z_result_t _z_str_decode(char **str, _z_zbuf_t *zbf) {
     if (_z_zbuf_len(zbf) < len) {
         _Z_WARN("Not enough bytes to read");
         *str = NULL;
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     // Allocate space for the null terminated string
     char *tmp = (char *)z_malloc(len + (size_t)1);
     if (tmp == NULL) {
         *str = NULL;
-        return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+        _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
     }
     // Read and store string
     tmp[len] = '\0';
@@ -321,7 +322,7 @@ z_result_t _z_string_decode(_z_string_t *str, _z_zbuf_t *zbf) {
     // Check if we have enough bytes to read
     if (_z_zbuf_len(zbf) < len) {
         _Z_INFO("Not enough bytes to read");
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     // Alias string
     *str = _z_string_alias_substr((const char *)_z_zbuf_get_rptr(zbf), len);

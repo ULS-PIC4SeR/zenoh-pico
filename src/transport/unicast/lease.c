@@ -37,7 +37,7 @@ z_result_t _zp_unicast_send_keep_alive(_z_transport_unicast_t *ztu) {
 
 z_result_t _zp_unicast_send_keep_alive(_z_transport_unicast_t *ztu) {
     _ZP_UNUSED(ztu);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif  // Z_FEATURE_UNICAST_TRANSPORT == 1
 
@@ -45,15 +45,24 @@ z_result_t _zp_unicast_send_keep_alive(_z_transport_unicast_t *ztu) {
 
 static void _zp_unicast_failed(_z_transport_unicast_t *ztu) {
 #if Z_FEATURE_LIVELINESS == 1 && Z_FEATURE_SUBSCRIPTION == 1
-    _z_liveliness_subscription_undeclare_all(_Z_RC_IN_VAL(ztu->_common._session));
+    _z_liveliness_subscription_undeclare_all(_z_transport_common_get_session(&ztu->_common));
 #endif
+#if Z_FEATURE_AUTO_RECONNECT == 1
+    _z_session_rc_t zs = _z_session_weak_upgrade(&ztu->_common._session);
+#endif
+    if (ztu->_common._read_task != NULL) {
+        ztu->_common._read_task_running = false;
+        _z_task_join(ztu->_common._read_task);
+        _z_task_free(&ztu->_common._read_task);
+    }
+    ztu->_common._lease_task_running = false;
 
     _z_unicast_transport_close(ztu, _Z_CLOSE_EXPIRED);
     _z_unicast_transport_clear(ztu, true);
 
 #if Z_FEATURE_AUTO_RECONNECT == 1
-    _z_session_rc_ref_t *zs = ztu->_common._session;
-    z_result_t ret = _z_reopen(zs);
+    z_result_t ret = _z_reopen(&zs);
+    _z_session_rc_drop(&zs);
     if (ret != _Z_RES_OK) {
         _Z_ERROR("Reopen failed: %i", ret);
     }
@@ -69,10 +78,10 @@ void *_zp_unicast_lease_task(void *ztu_arg) {
     int next_lease = (int)ztu->_common._lease;
     int next_keep_alive = (int)(ztu->_common._lease / Z_TRANSPORT_LEASE_EXPIRE_FACTOR);
 
-    z_whatami_t mode = _Z_RC_IN_VAL(ztu->_common._session)->_mode;
+    z_whatami_t mode = _z_transport_common_get_session(&ztu->_common)->_mode;
     _z_transport_peer_unicast_t *curr_peer = NULL;
     if (mode == Z_WHATAMI_CLIENT) {
-        curr_peer = _z_transport_peer_unicast_list_head(ztu->_peers);
+        curr_peer = _z_transport_peer_unicast_slist_value(ztu->_peers);
         assert(curr_peer != NULL);
     }
     while (ztu->_common._lease_task_running) {
@@ -111,13 +120,13 @@ void *_zp_unicast_lease_task(void *ztu_arg) {
 #if Z_FEATURE_UNICAST_PEER == 1
         else {  // Peer lease
             if (next_lease <= 0) {
-                _z_transport_peer_unicast_list_t *prev = NULL;
-                _z_transport_peer_unicast_list_t *prev_drop = NULL;
+                _z_transport_peer_unicast_slist_t *prev = NULL;
+                _z_transport_peer_unicast_slist_t *prev_drop = NULL;
                 _z_transport_peer_mutex_lock(&ztu->_common);
-                _z_transport_peer_unicast_list_t *curr_list = ztu->_peers;
+                _z_transport_peer_unicast_slist_t *curr_list = ztu->_peers;
                 while (curr_list != NULL) {
                     bool drop_peer = false;
-                    curr_peer = _z_transport_peer_unicast_list_head(curr_list);
+                    curr_peer = _z_transport_peer_unicast_slist_value(curr_list);
                     // Check if peer received data
                     if (curr_peer->common._received) {
                         curr_peer->common._received = false;
@@ -131,13 +140,12 @@ void *_zp_unicast_lease_task(void *ztu_arg) {
                         prev = curr_list;
                     }
                     // Progress list
-                    curr_list = _z_transport_peer_unicast_list_tail(curr_list);
+                    curr_list = _z_transport_peer_unicast_slist_next(curr_list);
                     // Drop if needed
                     if (drop_peer) {
-                        _z_subscription_cache_invalidate(_Z_RC_IN_VAL(ztu->_common._session));
-                        _z_queryable_cache_invalidate(_Z_RC_IN_VAL(ztu->_common._session));
-                        _z_interest_peer_disconnected(_Z_RC_IN_VAL(ztu->_common._session), &curr_peer->common);
-                        ztu->_peers = _z_transport_peer_unicast_list_drop_element(ztu->_peers, prev_drop);
+                        _z_session_t *zs = _z_transport_common_get_session(&ztu->_common);
+                        _z_interest_peer_disconnected(zs, &curr_peer->common);
+                        ztu->_peers = _z_transport_peer_unicast_slist_drop_element(ztu->_peers, prev_drop);
                     }
                 }
                 _z_transport_peer_mutex_unlock(&ztu->_common);
@@ -149,7 +157,7 @@ void *_zp_unicast_lease_task(void *ztu_arg) {
                     // Send keep alive to all peers
                     _z_transport_message_t t_msg = _z_t_msg_make_keep_alive();
                     _z_transport_peer_mutex_lock(&ztu->_common);
-                    if (!_z_transport_peer_unicast_list_is_empty(ztu->_peers)) {
+                    if (!_z_transport_peer_unicast_slist_is_empty(ztu->_peers)) {
                         if (_z_transport_tx_send_t_msg(&ztu->_common, &t_msg, ztu->_peers) != _Z_RES_OK) {
                             _Z_INFO("Send keep alive failed.");
                         }
@@ -163,7 +171,7 @@ void *_zp_unicast_lease_task(void *ztu_arg) {
 #endif
 
         // Query timeout process
-        _z_pending_query_process_timeout(_Z_RC_IN_VAL(ztu->_common._session));
+        _z_pending_query_process_timeout(_z_transport_common_get_session(&ztu->_common));
 
         // Compute the target interval
         int interval;
@@ -191,7 +199,7 @@ z_result_t _zp_unicast_start_lease_task(_z_transport_t *zt, z_task_attr_t *attr,
     zt->_transport._unicast._common._lease_task_running = true;  // Init before z_task_init for concurrency issue
     // Init task
     if (_z_task_init(task, attr, _zp_unicast_lease_task, &zt->_transport._unicast) != _Z_RES_OK) {
-        return _Z_ERR_SYSTEM_TASK_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_SYSTEM_TASK_FAILED);
     }
     // Attach task
     zt->_transport._unicast._common._lease_task = task;
@@ -213,11 +221,11 @@ z_result_t _zp_unicast_start_lease_task(_z_transport_t *zt, void *attr, void *ta
     _ZP_UNUSED(zt);
     _ZP_UNUSED(attr);
     _ZP_UNUSED(task);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _zp_unicast_stop_lease_task(_z_transport_t *zt) {
     _ZP_UNUSED(zt);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif

@@ -27,7 +27,8 @@
 extern "C" {
 #endif
 
-_Z_ELEM_DEFINE(_z_arc_slice, _z_arc_slice_t, _z_arc_slice_size, _z_arc_slice_drop, _z_arc_slice_copy, _z_arc_slice_move)
+_Z_ELEM_DEFINE(_z_arc_slice, _z_arc_slice_t, _z_arc_slice_size, _z_arc_slice_drop, _z_arc_slice_copy, _z_arc_slice_move,
+               _z_noop_eq, _z_noop_cmp, _z_noop_hash)
 _Z_SVEC_DEFINE(_z_arc_slice, _z_arc_slice_t)
 
 /*-------- Bytes --------*/
@@ -78,7 +79,7 @@ void _z_bytes_free(_z_bytes_t **bs);
 size_t _z_bytes_len(const _z_bytes_t *bs);
 bool _z_bytes_is_empty(const _z_bytes_t *bs);
 z_result_t _z_bytes_to_slice(const _z_bytes_t *bytes, _z_slice_t *s);
-z_result_t _z_bytes_from_slice(_z_bytes_t *b, _z_slice_t s);
+z_result_t _z_bytes_from_slice(_z_bytes_t *b, _z_slice_t *s);
 size_t _z_bytes_to_buf(const _z_bytes_t *bytes, uint8_t *dst, size_t len);
 z_result_t _z_bytes_from_buf(_z_bytes_t *b, const uint8_t *src, size_t len);
 _z_slice_t _z_bytes_try_get_contiguous(const _z_bytes_t *bs);

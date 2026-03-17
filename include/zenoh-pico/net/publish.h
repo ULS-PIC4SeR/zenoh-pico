@@ -15,6 +15,7 @@
 #ifndef INCLUDE_ZENOH_PICO_NET_PUBLISH_H
 #define INCLUDE_ZENOH_PICO_NET_PUBLISH_H
 
+#include "zenoh-pico/api/constants.h"
 #include "zenoh-pico/net/filtering.h"
 #include "zenoh-pico/net/session.h"
 #include "zenoh-pico/protocol/core.h"
@@ -35,6 +36,7 @@ typedef struct _z_publisher_t {
     z_priority_t _priority;
     z_reliability_t reliability;
     bool _is_express;
+    z_locality_t _allowed_destination;
     _z_write_filter_t _filter;
 } _z_publisher_t;
 
@@ -42,8 +44,6 @@ typedef struct _z_publisher_t {
 // Warning: None of the sub-types require a non-0 initialization. Add a init function if it changes.
 static inline _z_publisher_t _z_publisher_null(void) { return (_z_publisher_t){0}; }
 static inline bool _z_publisher_check(const _z_publisher_t *publisher) { return !_Z_RC_IS_NULL(&publisher->_zn); }
-void _z_publisher_clear(_z_publisher_t *pub);
-void _z_publisher_free(_z_publisher_t **pub);
 #endif
 
 #ifdef __cplusplus

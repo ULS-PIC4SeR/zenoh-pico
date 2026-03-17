@@ -33,11 +33,12 @@ char *_z_str_n_clone(const char *src, size_t len);
 void _z_str_clear(char *src);
 void _z_str_free(char **src);
 bool _z_str_eq(const char *left, const char *right);
+int _z_str_cmp(const char *left, const char *right);
 
 size_t _z_str_size(const char *src);
 void _z_str_copy(char *dst, const char *src);
 void _z_str_n_copy(char *dst, const char *src, size_t size);
-_Z_ELEM_DEFINE(_z_str, char, _z_str_size, _z_noop_clear, _z_str_copy, _z_noop_move)
+_Z_ELEM_DEFINE(_z_str, char, _z_str_size, _z_noop_clear, _z_str_copy, _z_noop_move, _z_str_eq, _z_str_cmp, _z_noop_hash)
 
 _Z_VEC_DEFINE(_z_str, char)
 _Z_LIST_DEFINE(_z_str, char)
@@ -117,13 +118,22 @@ _z_string_t _z_string_steal(_z_string_t *str);
 void _z_string_move_str(_z_string_t *dst, char *src);
 void _z_string_free(_z_string_t **s);
 int _z_string_compare(const _z_string_t *left, const _z_string_t *right);
+int _z_substring_compare(const _z_string_t *left, size_t left_start, size_t left_len, const _z_string_t *right,
+                         size_t right_start, size_t right_len);
 bool _z_string_equals(const _z_string_t *left, const _z_string_t *right);
 _z_string_t _z_string_convert_bytes_le(const _z_slice_t *bs);
 _z_string_t _z_string_preallocate(const size_t len);
+z_result_t _z_string_concat_substr(_z_string_t *s, const _z_string_t *left, const char *right, size_t len,
+                                   const char *separator, size_t separator_len);
+static inline z_result_t _z_string_concat(_z_string_t *s, const _z_string_t *left, const _z_string_t *right,
+                                          const char *separator, size_t separator_len) {
+    return _z_string_concat_substr(s, left, _z_string_data(right), _z_string_len(right), separator, separator_len);
+}
 
 char *_z_str_from_string_clone(const _z_string_t *str);
 
-_Z_ELEM_DEFINE(_z_string, _z_string_t, _z_string_len, _z_string_clear, _z_string_copy, _z_string_move)
+_Z_ELEM_DEFINE(_z_string, _z_string_t, _z_string_len, _z_string_clear, _z_string_copy, _z_string_move, _z_string_equals,
+               _z_string_compare, _z_noop_hash)
 _Z_SVEC_DEFINE(_z_string, _z_string_t)
 _Z_LIST_DEFINE(_z_string, _z_string_t)
 _Z_INT_MAP_DEFINE(_z_string, _z_string_t)

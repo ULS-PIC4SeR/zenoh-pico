@@ -55,6 +55,22 @@ typedef enum z_whatami_t {
 #define Z_WHATAMI_DEFAULT Z_WHATAMI_ROUTER;
 
 /**
+ * The locality of samples to be received by subscribers or targeted by publishers.
+ *
+ * Enumerators:
+ *   Z_LOCALITY_ANY: Allow both session-local and remote traffic.
+ *   Z_LOCALITY_SESSION_LOCAL: Allow session-local traffic only.
+ *   Z_LOCALITY_REMOTE: Allow remote traffic only.
+ */
+typedef enum z_locality_t {
+    Z_LOCALITY_ANY = 0,
+    Z_LOCALITY_SESSION_LOCAL = 1,
+    Z_LOCALITY_REMOTE = 2,
+} z_locality_t;
+
+static inline z_locality_t z_locality_default(void) { return Z_LOCALITY_ANY; }
+
+/**
  * Status values for keyexpr canonization operation.
  * Used as return value of canonization-related functions,
  * like :c:func:`z_keyexpr_is_canon` or :c:func:`z_keyexpr_canonize`.
@@ -99,6 +115,40 @@ typedef enum {
     Z_KEYEXPR_INTERSECTION_LEVEL_INCLUDES = 2,
     Z_KEYEXPR_INTERSECTION_LEVEL_EQUALS = 3,
 } z_keyexpr_intersection_level_t;
+
+/**
+ * Key expression constant strings.
+ */
+#define _Z_KEYEXPR_AT "@"
+#define _Z_KEYEXPR_AT_LEN (sizeof(_Z_KEYEXPR_AT) - 1)
+#define _Z_KEYEXPR_ADV_PREFIX "@adv"
+#define _Z_KEYEXPR_ADV_PREFIX_LEN (sizeof(_Z_KEYEXPR_ADV_PREFIX) - 1)
+#define _Z_KEYEXPR_PUB "pub"
+#define _Z_KEYEXPR_PUB_LEN (sizeof(_Z_KEYEXPR_PUB) - 1)
+#define _Z_KEYEXPR_SUB "sub"
+#define _Z_KEYEXPR_SUB_LEN (sizeof(_Z_KEYEXPR_SUB) - 1)
+#define _Z_KEYEXPR_UHLC "uhlc"
+#define _Z_KEYEXPR_UHLC_LEN (sizeof(_Z_KEYEXPR_UHLC) - 1)
+#define _Z_KEYEXPR_EMPTY "_"
+#define _Z_KEYEXPR_EMPTY_LEN (sizeof(_Z_KEYEXPR_EMPTY) - 1)
+#define _Z_KEYEXPR_STAR "*"
+#define _Z_KEYEXPR_STAR_LEN (sizeof(_Z_KEYEXPR_STAR) - 1)
+#define _Z_KEYEXPR_STARSTAR "**"
+#define _Z_KEYEXPR_STARSTAR_LEN (sizeof(_Z_KEYEXPR_STARSTAR) - 1)
+#define _Z_KEYEXPR_SESSION "session"
+#define _Z_KEYEXPR_SESSION_LEN (sizeof(_Z_KEYEXPR_SESSION) - 1)
+#define _Z_KEYEXPR_PICO "pico"
+#define _Z_KEYEXPR_PICO_LEN (sizeof(_Z_KEYEXPR_PICO) - 1)
+#define _Z_KEYEXPR_TRANSPORT_UNICAST "transport/unicast"
+#define _Z_KEYEXPR_TRANSPORT_UNICAST_LEN (sizeof(_Z_KEYEXPR_TRANSPORT_UNICAST) - 1)
+#define _Z_KEYEXPR_TRANSPORT_MULTICAST "transport/multicast"
+#define _Z_KEYEXPR_TRANSPORT_MULTICAST_LEN (sizeof(_Z_KEYEXPR_TRANSPORT_MULTICAST) - 1)
+#define _Z_KEYEXPR_TRANSPORT_RAWETH "transport/raweth"
+#define _Z_KEYEXPR_TRANSPORT_RAWETH_LEN (sizeof(_Z_KEYEXPR_TRANSPORT_RAWETH) - 1)
+#define _Z_KEYEXPR_LINK "link"
+#define _Z_KEYEXPR_LINK_LEN (sizeof(_Z_KEYEXPR_LINK) - 1)
+#define _Z_KEYEXPR_SEPARATOR "/"
+#define _Z_KEYEXPR_SEPARATOR_LEN (sizeof(_Z_KEYEXPR_SEPARATOR) - 1)
 
 /**
  * Sample kind values.

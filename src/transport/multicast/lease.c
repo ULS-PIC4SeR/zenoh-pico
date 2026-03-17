@@ -21,6 +21,7 @@
 #include "zenoh-pico/session/query.h"
 #include "zenoh-pico/session/utils.h"
 #include "zenoh-pico/transport/multicast/lease.h"
+#include "zenoh-pico/transport/multicast/transport.h"
 #include "zenoh-pico/utils/logging.h"
 #include "zenoh-pico/utils/result.h"
 
@@ -32,7 +33,7 @@ z_result_t _zp_multicast_send_join(_z_transport_multicast_t *ztm) {
     next_sn._val._plain._best_effort = ztm->_common._sn_tx_best_effort;
     next_sn._val._plain._reliable = ztm->_common._sn_tx_reliable;
 
-    _z_id_t zid = _Z_RC_IN_VAL(ztm->_common._session)->_local_zid;
+    _z_id_t zid = _z_transport_common_get_session(&ztm->_common)->_local_zid;
     _z_transport_message_t jsm = _z_t_msg_make_join(Z_WHATAMI_PEER, Z_TRANSPORT_LEASE, zid, next_sn);
 
     return ztm->_send_f(&ztm->_common, &jsm);
@@ -46,12 +47,12 @@ z_result_t _zp_multicast_send_keep_alive(_z_transport_multicast_t *ztm) {
 #else
 z_result_t _zp_multicast_send_join(_z_transport_multicast_t *ztm) {
     _ZP_UNUSED(ztm);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _zp_multicast_send_keep_alive(_z_transport_multicast_t *ztm) {
     _ZP_UNUSED(ztm);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif  // Z_FEATURE_MULTICAST_TRANSPORT == 1 || Z_FEATURE_RAWETH_TRANSPORT == 1
 
@@ -61,43 +62,48 @@ static void _zp_multicast_failed(_z_transport_multicast_t *ztm) {
     _ZP_UNUSED(ztm);
 
 #if Z_FEATURE_LIVELINESS == 1 && Z_FEATURE_SUBSCRIPTION == 1
-    _z_liveliness_subscription_undeclare_all(_Z_RC_IN_VAL(ztm->_common._session));
+    _z_liveliness_subscription_undeclare_all(_z_transport_common_get_session(&ztm->_common));
 #endif
+#if Z_FEATURE_AUTO_RECONNECT == 1
+    _z_session_rc_t zs = _z_session_weak_upgrade(&ztm->_common._session);
+#endif
+    _z_multicast_transport_clear(ztm, true);
 
 #if Z_FEATURE_AUTO_RECONNECT == 1
-    _z_reopen(ztm->_common._session);
+    _z_reopen(&zs);
+    _z_session_rc_drop(&zs);
 #endif
 }
 
-static _z_zint_t _z_get_minimum_lease(_z_transport_peer_multicast_list_t *peers, _z_zint_t local_lease) {
+static _z_zint_t _z_get_minimum_lease(_z_transport_peer_multicast_slist_t *peers, _z_zint_t local_lease) {
     _z_zint_t ret = local_lease;
 
-    _z_transport_peer_multicast_list_t *it = peers;
+    _z_transport_peer_multicast_slist_t *it = peers;
     while (it != NULL) {
-        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_list_head(it);
+        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_slist_value(it);
         _z_zint_t lease = val->_lease;
         if (lease < ret) {
             ret = lease;
         }
 
-        it = _z_transport_peer_multicast_list_tail(it);
+        it = _z_transport_peer_multicast_slist_next(it);
     }
 
     return ret;
 }
 
-static _z_zint_t _z_get_next_lease(_z_transport_peer_multicast_list_t *peers) {
+static _z_zint_t _z_get_next_lease(_z_transport_peer_multicast_slist_t *peers) {
     _z_zint_t ret = SIZE_MAX;
 
-    _z_transport_peer_multicast_list_t *it = peers;
+    _z_transport_peer_multicast_slist_t *it = peers;
     while (it != NULL) {
-        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_list_head(it);
+        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_slist_value(it);
         _z_zint_t next_lease = val->_next_lease;
         if (next_lease < ret) {
             ret = next_lease;
         }
 
-        it = _z_transport_peer_multicast_list_tail(it);
+        it = _z_transport_peer_multicast_slist_next(it);
     }
 
     return ret;
@@ -114,13 +120,13 @@ void *_zp_multicast_lease_task(void *ztm_arg) {
 
     while (ztm->_common._lease_task_running) {
         if (next_lease <= 0) {
-            _z_transport_peer_multicast_list_t *prev = NULL;
-            _z_transport_peer_multicast_list_t *prev_drop = NULL;
+            _z_transport_peer_multicast_slist_t *prev = NULL;
+            _z_transport_peer_multicast_slist_t *prev_drop = NULL;
             _z_transport_peer_mutex_lock(&ztm->_common);
-            _z_transport_peer_multicast_list_t *curr_list = ztm->_peers;
+            _z_transport_peer_multicast_slist_t *curr_list = ztm->_peers;
             while (curr_list != NULL) {
                 bool drop_peer = false;
-                _z_transport_peer_multicast_t *curr_peer = _z_transport_peer_multicast_list_head(curr_list);
+                _z_transport_peer_multicast_t *curr_peer = _z_transport_peer_multicast_slist_value(curr_list);
                 if (curr_peer->common._received) {
                     // Reset the lease parameters
                     curr_peer->common._received = false;
@@ -135,13 +141,12 @@ void *_zp_multicast_lease_task(void *ztm_arg) {
                     prev = curr_list;
                 }
                 // Progress list
-                curr_list = _z_transport_peer_unicast_list_tail(curr_list);
+                curr_list = _z_transport_peer_multicast_slist_next(curr_list);
                 // Drop if needed
                 if (drop_peer) {
-                    _z_subscription_cache_invalidate(_Z_RC_IN_VAL(ztm->_common._session));
-                    _z_queryable_cache_invalidate(_Z_RC_IN_VAL(ztm->_common._session));
-                    _z_interest_peer_disconnected(_Z_RC_IN_VAL(ztm->_common._session), &curr_peer->common);
-                    ztm->_peers = _z_transport_peer_multicast_list_drop_element(ztm->_peers, prev_drop);
+                    _z_session_t *s = _z_transport_common_get_session(&ztm->_common);
+                    _z_interest_peer_disconnected(s, &curr_peer->common);
+                    ztm->_peers = _z_transport_peer_multicast_slist_drop_element(ztm->_peers, prev_drop);
                 }
             }
             _z_transport_peer_mutex_unlock(&ztm->_common);
@@ -170,7 +175,8 @@ void *_zp_multicast_lease_task(void *ztm_arg) {
         }
 
         // Query timeout process
-        _z_pending_query_process_timeout(_Z_RC_IN_VAL(ztm->_common._session));
+        _z_session_t *s = _z_transport_common_get_session(&ztm->_common);
+        _z_pending_query_process_timeout(s);
 
         // Compute the target interval to sleep
         int interval;
@@ -194,9 +200,9 @@ void *_zp_multicast_lease_task(void *ztm_arg) {
 
         // Decrement all intervals
         _z_transport_peer_mutex_lock(&ztm->_common);
-        _z_transport_peer_multicast_list_t *curr_list = ztm->_peers;
+        _z_transport_peer_multicast_slist_t *curr_list = ztm->_peers;
         while (curr_list != NULL) {
-            _z_transport_peer_multicast_t *entry = _z_transport_peer_multicast_list_head(curr_list);
+            _z_transport_peer_multicast_t *entry = _z_transport_peer_multicast_slist_value(curr_list);
             int entry_next_lease = (int)entry->_next_lease - interval;
             if (entry_next_lease >= 0) {
                 entry->_next_lease = (size_t)entry_next_lease;
@@ -204,7 +210,7 @@ void *_zp_multicast_lease_task(void *ztm_arg) {
                 _Z_ERROR("Negative next lease value");
                 entry->_next_lease = 0;
             }
-            curr_list = _z_transport_peer_multicast_list_tail(curr_list);
+            curr_list = _z_transport_peer_multicast_slist_next(curr_list);
         }
         next_lease = (int)_z_get_next_lease(ztm->_peers);
         _z_transport_peer_mutex_unlock(&ztm->_common);
@@ -221,7 +227,7 @@ z_result_t _zp_multicast_start_lease_task(_z_transport_multicast_t *ztm, z_task_
     // Init task
     if (_z_task_init(task, attr, _zp_multicast_lease_task, ztm) != _Z_RES_OK) {
         ztm->_common._lease_task_running = false;
-        return _Z_ERR_SYSTEM_TASK_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_SYSTEM_TASK_FAILED);
     }
     // Attach task
     ztm->_common._lease_task = task;
@@ -243,11 +249,11 @@ z_result_t _zp_multicast_start_lease_task(_z_transport_multicast_t *ztm, void *a
     _ZP_UNUSED(ztm);
     _ZP_UNUSED(attr);
     _ZP_UNUSED(task);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _zp_multicast_stop_lease_task(_z_transport_multicast_t *ztm) {
     _ZP_UNUSED(ztm);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif  // Z_FEATURE_MULTI_THREAD == 1 && (Z_FEATURE_MULTICAST_TRANSPORT == 1 || Z_FEATURE_RAWETH_TRANSPORT == 1)

@@ -19,7 +19,9 @@
 #include <sys/time.h>
 
 #include "zenoh-pico/config.h"
+#include "zenoh-pico/system/common/system_error.h"
 #include "zenoh-pico/system/platform.h"
+#include "zenoh-pico/utils/logging.h"
 
 /*------------------ Random ------------------*/
 uint8_t z_random_u8(void) { return z_random_u32(); }
@@ -118,7 +120,7 @@ z_result_t _z_task_join(_z_task_t *task) {
 
 z_result_t _z_task_detach(_z_task_t *task) {
     // Not implemented
-    return _Z_ERR_GENERIC;
+    _Z_ERROR_RETURN(_Z_ERR_GENERIC);
 }
 
 z_result_t z_task_cancel(_z_task_t *task) {

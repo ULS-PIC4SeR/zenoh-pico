@@ -18,7 +18,6 @@
 #include <stdint.h>
 
 #include "zenoh-pico/collections/string.h"
-#include "zenoh-pico/protocol/core.h"
 #include "zenoh-pico/system/platform.h"
 
 #ifdef __cplusplus
@@ -38,7 +37,7 @@ extern "C" {
 
 // Endpoint config types
 typedef struct {
-    _z_keyexpr_t _keyexpr;
+    _z_string_t _keyexpr;
     uint16_t _vlan;  // vlan tag (pcp + dei + id), big endian
     uint8_t _dmac[_ZP_MAC_ADDR_LENGTH];
     bool _has_vlan;
@@ -47,7 +46,7 @@ typedef struct {
 void _z_raweth_clear_mapping_entry(_zp_raweth_mapping_entry_t *entry);
 
 _Z_ELEM_DEFINE(_zp_raweth_mapping, _zp_raweth_mapping_entry_t, _z_noop_size, _z_raweth_clear_mapping_entry,
-               _z_noop_copy, _z_noop_move)
+               _z_noop_copy, _z_noop_move, _z_noop_eq, _z_noop_cmp, _z_noop_hash)
 _Z_ARRAY_DEFINE(_zp_raweth_mapping, _zp_raweth_mapping_entry_t)
 
 typedef struct {
@@ -55,7 +54,7 @@ typedef struct {
 } _zp_raweth_whitelist_entry_t;
 
 _Z_ELEM_DEFINE(_zp_raweth_whitelist, _zp_raweth_whitelist_entry_t, _z_noop_size, _z_noop_clear, _z_noop_copy,
-               _z_noop_move)
+               _z_noop_move, _z_noop_eq, _z_noop_cmp, _z_noop_hash)
 _Z_ARRAY_DEFINE(_zp_raweth_whitelist, _zp_raweth_whitelist_entry_t)
 
 // Ethernet header structure type

@@ -16,8 +16,6 @@
 #include "zenoh-pico/api/olv_macros.h"
 #include "zenoh-pico/utils/logging.h"
 
-void _z_report_system_error(int errcode) { _Z_ERROR("System error: %i", errcode); }
-
 #if Z_FEATURE_MULTI_THREAD == 1
 
 /*------------------ Thread ------------------*/
@@ -30,14 +28,12 @@ z_result_t z_task_init(z_owned_task_t *task, z_task_attr_t *attr, void *(*fun)(v
 z_result_t z_task_join(z_moved_task_t *task) {
     _z_task_t *ptr = &task->_this._val;
     z_result_t ret = _z_task_join(ptr);
-    _z_task_free(&ptr);
     return ret;
 }
 
 z_result_t z_task_detach(z_moved_task_t *task) {
     _z_task_t *ptr = &task->_this._val;
     z_result_t ret = _z_task_detach(ptr);
-    _z_task_free(&ptr);
     return ret;
 }
 

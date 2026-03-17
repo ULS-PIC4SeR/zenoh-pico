@@ -74,7 +74,7 @@ static inline z_result_t _z_slice_val_decode_na(_z_slice_t *bs, _z_zbuf_t *zbf) 
         _Z_WARN("Not enough bytes to read");
         bs->len = 0;
         bs->start = NULL;
-        return _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
     }
     *bs = _z_slice_alias_buf(_z_zbuf_get_rptr(zbf), bs->len);  // Decode without allocating
     _z_zbuf_set_rpos(zbf, _z_zbuf_get_rpos(zbf) + bs->len);    // Move the read position
@@ -104,8 +104,9 @@ z_result_t _z_encoding_decode(_z_encoding_t *en, _z_zbuf_t *zbf);
 z_result_t _z_value_encode(_z_wbuf_t *wbf, const _z_value_t *en);
 z_result_t _z_value_decode(_z_value_t *en, _z_zbuf_t *zbf);
 
-z_result_t _z_keyexpr_encode(_z_wbuf_t *buf, bool has_suffix, const _z_keyexpr_t *ke);
-z_result_t _z_keyexpr_decode(_z_keyexpr_t *ke, _z_zbuf_t *buf, bool has_suffix, bool remote_mapping, uintptr_t mapping);
+z_result_t _z_wireexpr_encode(_z_wbuf_t *buf, bool has_suffix, const _z_wireexpr_t *ke);
+z_result_t _z_wireexpr_decode(_z_wireexpr_t *ke, _z_zbuf_t *buf, bool has_suffix, bool remote_mapping,
+                              uintptr_t mapping);
 
 z_result_t _z_timestamp_encode(_z_wbuf_t *buf, const _z_timestamp_t *ts);
 z_result_t _z_timestamp_encode_ext(_z_wbuf_t *buf, const _z_timestamp_t *ts);

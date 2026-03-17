@@ -11,7 +11,7 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 
-#include "zenoh-pico/transport/unicast/transport.h"
+#include "zenoh-pico/transport/common/transport.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,9 +22,9 @@
 #include "zenoh-pico/link/link.h"
 #include "zenoh-pico/system/common/platform.h"
 #include "zenoh-pico/transport/common/rx.h"
-#include "zenoh-pico/transport/common/transport.h"
 #include "zenoh-pico/transport/common/tx.h"
 #include "zenoh-pico/transport/transport.h"
+#include "zenoh-pico/transport/unicast/transport.h"
 #include "zenoh-pico/transport/utils.h"
 #include "zenoh-pico/utils/logging.h"
 
@@ -63,7 +63,7 @@ static z_result_t _z_unicast_transport_create_inner(_z_transport_unicast_t *ztu,
     // Check if a buffer failed to allocate
     if ((_z_wbuf_capacity(&ztu->_common._wbuf) != wbuf_size) || (_z_zbuf_capacity(&ztu->_common._zbuf) != zbuf_size)) {
         _Z_ERROR("Not enough memory to allocate transport buffers!");
-        return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+        _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
     }
     // Set default SN resolution
     ztu->_common._sn_res = _z_sn_max(param->_seq_num_res);
@@ -75,9 +75,9 @@ static z_result_t _z_unicast_transport_create_inner(_z_transport_unicast_t *ztu,
     // Transport lease
     ztu->_common._lease = param->_lease;
     // Transport link for unicast
-    ztu->_common._link = *zl;
+    ztu->_common._link = zl;
 
-    ztu->_peers = _z_transport_peer_unicast_list_new();
+    ztu->_peers = _z_transport_peer_unicast_slist_new();
     return _Z_RES_OK;
 }
 
@@ -120,40 +120,37 @@ static z_result_t _z_unicast_handshake_open(_z_transport_unicast_establish_param
     _Z_RETURN_IF_ERR(_z_link_recv_t_msg(&iam, zl, socket));
     if ((_Z_MID(iam._header) != _Z_MID_T_INIT) || !_Z_HAS_FLAG(iam._header, _Z_FLAG_T_INIT_A)) {
         _z_t_msg_clear(&iam);
-        return _Z_ERR_MESSAGE_UNEXPECTED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_UNEXPECTED);
     }
+    param->_remote_whatami = iam._body._init._whatami;
     _Z_DEBUG("Received Z_INIT(Ack)");
-    if (mode == Z_WHATAMI_CLIENT) {
-        // Any of the size parameters in the InitAck must be less or equal than the one in the InitSyn,
-        // otherwise the InitAck message is considered invalid and it should be treated as a
-        // CLOSE message with L==0 by the Initiating Peer -- the recipient of the InitAck message.
-        if (iam._body._init._seq_num_res <= param->_seq_num_res) {
-            param->_seq_num_res = iam._body._init._seq_num_res;
-        } else {
-            ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
-        }
-        if (iam._body._init._req_id_res <= param->_req_id_res) {
-            param->_req_id_res = iam._body._init._req_id_res;
-        } else {
-            ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
-        }
-        if (iam._body._init._batch_size <= param->_batch_size) {
-            param->_batch_size = iam._body._init._batch_size;
-        } else {
-            ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
-        }
+    // Any of the size parameters in the InitAck must be less or equal than the one in the InitSyn,
+    // otherwise the InitAck message is considered invalid and it should be treated as a
+    // CLOSE message with L==0 by the Initiating Peer -- the recipient of the InitAck message.
+    if (iam._body._init._seq_num_res <= param->_seq_num_res) {
+        param->_seq_num_res = iam._body._init._seq_num_res;
     } else {
-        // If the new node has less representing capabilities then it is incompatible to communication
-        if ((iam._body._init._seq_num_res < param->_seq_num_res) ||
-            (iam._body._init._req_id_res < param->_req_id_res) || (iam._body._init._batch_size < param->_batch_size)) {
-            ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
-        }
+        _Z_ERROR_LOG(_Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION);
+        ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
+    }
+    if (iam._body._init._req_id_res <= param->_req_id_res) {
+        param->_req_id_res = iam._body._init._req_id_res;
+    } else {
+        _Z_ERROR_LOG(_Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION);
+        ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
+    }
+    if (iam._body._init._batch_size <= param->_batch_size) {
+        param->_batch_size = iam._body._init._batch_size;
+    } else {
+        _Z_ERROR_LOG(_Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION);
+        ret = _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
     }
 #if Z_FEATURE_FRAGMENTATION == 1
     if (iam._body._init._patch <= ism._body._init._patch) {
         param->_patch = iam._body._init._patch;
     } else {
         // TODO: Use a better error code?
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 #endif
@@ -195,6 +192,7 @@ static z_result_t _z_unicast_handshake_open(_z_transport_unicast_establish_param
     _Z_RETURN_IF_ERR(_z_link_recv_t_msg(&oam, zl, socket));
     if ((_Z_MID(oam._header) != _Z_MID_T_OPEN) || !_Z_HAS_FLAG(oam._header, _Z_FLAG_T_OPEN_A)) {
         _z_t_msg_clear(&oam);
+        _Z_ERROR_LOG(_Z_ERR_MESSAGE_UNEXPECTED);
         ret = _Z_ERR_MESSAGE_UNEXPECTED;
     }
     // THIS LOG STRING USED IN TEST, change with caution
@@ -219,20 +217,28 @@ z_result_t _z_unicast_handshake_listen(_z_transport_unicast_establish_param_t *p
     // Receive InitSyn
     if (_Z_MID(tmsg._header) != _Z_MID_T_INIT || _Z_HAS_FLAG(tmsg._header, _Z_FLAG_T_INIT_A)) {
         _z_t_msg_clear(&tmsg);
-        return _Z_ERR_MESSAGE_UNEXPECTED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_UNEXPECTED);
     }
     _Z_DEBUG("Received Z_INIT(Syn)");
     // Encode InitAck
     _z_slice_t cookie = _z_slice_null();
     _z_transport_message_t iam = _z_t_msg_make_init_ack(mode, *local_zid, cookie);
 
-    // If the new node has less representing capabilities then it is incompatible to communication
-    if ((tmsg._body._init._seq_num_res < iam._body._init._seq_num_res) ||
-        (tmsg._body._init._req_id_res < iam._body._init._req_id_res) ||
-        (tmsg._body._init._batch_size < iam._body._init._batch_size)) {
-        _z_t_msg_clear(&tmsg);
-        return _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
+    // If the new node has less representing capabilities adjust settings
+    if (tmsg._body._init._seq_num_res < iam._body._init._seq_num_res) {
+        _Z_DEBUG("Adjusting SN resolution from %u to %u", iam._body._init._seq_num_res, tmsg._body._init._seq_num_res);
+        iam._body._init._seq_num_res = tmsg._body._init._seq_num_res;
     }
+    if (tmsg._body._init._req_id_res < iam._body._init._req_id_res) {
+        _Z_DEBUG("Adjusting Req ID resolution from %u to %u", iam._body._init._req_id_res,
+                 tmsg._body._init._req_id_res);
+        iam._body._init._req_id_res = tmsg._body._init._req_id_res;
+    }
+    if (tmsg._body._init._batch_size < iam._body._init._batch_size) {
+        _Z_DEBUG("Adjusting Batch Size from %u to %u", iam._body._init._batch_size, tmsg._body._init._batch_size);
+        iam._body._init._batch_size = tmsg._body._init._batch_size;
+    }
+
 #if Z_FEATURE_FRAGMENTATION == 1
     if (iam._body._init._patch > tmsg._body._init._patch) {
         iam._body._init._patch = tmsg._body._init._patch;
@@ -260,7 +266,7 @@ z_result_t _z_unicast_handshake_listen(_z_transport_unicast_establish_param_t *p
     // Receive OpenSyn
     if (_Z_MID(tmsg._header) != _Z_MID_T_OPEN || _Z_HAS_FLAG(tmsg._header, _Z_FLAG_T_INIT_A)) {
         _z_t_msg_clear(&tmsg);
-        return _Z_ERR_MESSAGE_UNEXPECTED;
+        _Z_ERROR_RETURN(_Z_ERR_MESSAGE_UNEXPECTED);
     }
     _Z_DEBUG("Received Z_OPEN(Syn)");
     // Process message
@@ -323,7 +329,7 @@ z_result_t _z_unicast_transport_close(_z_transport_unicast_t *ztu, uint8_t reaso
 
 void _z_unicast_transport_clear(_z_transport_unicast_t *ztu, bool detach_tasks) {
     _z_common_transport_clear(&ztu->_common, detach_tasks);
-    _z_transport_peer_unicast_list_free(&ztu->_peers);
+    _z_transport_peer_unicast_slist_free(&ztu->_peers);
 }
 
 #else
@@ -333,7 +339,7 @@ z_result_t _z_unicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
     _ZP_UNUSED(zt);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(param);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_unicast_open_client(_z_transport_unicast_establish_param_t *param, const _z_link_t *zl,
@@ -341,7 +347,7 @@ z_result_t _z_unicast_open_client(_z_transport_unicast_establish_param_t *param,
     _ZP_UNUSED(param);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(local_zid);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_unicast_open_peer(_z_transport_unicast_establish_param_t *param, const _z_link_t *zl,
@@ -351,24 +357,24 @@ z_result_t _z_unicast_open_peer(_z_transport_unicast_establish_param_t *param, c
     _ZP_UNUSED(local_zid);
     _ZP_UNUSED(peer_op);
     _ZP_UNUSED(socket);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_unicast_send_close(_z_transport_unicast_t *ztu, uint8_t reason, bool link_only) {
     _ZP_UNUSED(ztu);
     _ZP_UNUSED(reason);
     _ZP_UNUSED(link_only);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_unicast_transport_close(_z_transport_unicast_t *ztu, uint8_t reason) {
     _ZP_UNUSED(ztu);
     _ZP_UNUSED(reason);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 void _z_unicast_transport_clear(_z_transport_unicast_t *ztu, bool detach_tasks) {
-    _ZP_UNUSED(zt);
+    _ZP_UNUSED(ztu);
     _ZP_UNUSED(detach_tasks);
 }
 

@@ -38,12 +38,13 @@ static z_result_t _z_multicast_recv_t_msg_na(_z_transport_multicast_t *ztm, _z_t
     _z_transport_rx_mutex_lock(&ztm->_common);
     size_t to_read = 0;
     do {
-        switch (ztm->_common._link._cap._flow) {
+        switch (ztm->_common._link->_cap._flow) {
             case Z_LINK_CAP_FLOW_STREAM:
                 if (_z_zbuf_len(&ztm->_common._zbuf) < _Z_MSG_LEN_ENC_SIZE) {
-                    _z_link_recv_zbuf(&ztm->_common._link, &ztm->_common._zbuf, addr);
+                    _z_link_recv_zbuf(ztm->_common._link, &ztm->_common._zbuf, addr);
                     if (_z_zbuf_len(&ztm->_common._zbuf) < _Z_MSG_LEN_ENC_SIZE) {
                         _z_zbuf_compact(&ztm->_common._zbuf);
+                        _Z_ERROR_LOG(_Z_ERR_TRANSPORT_NOT_ENOUGH_BYTES);
                         ret = _Z_ERR_TRANSPORT_NOT_ENOUGH_BYTES;
                         break;
                     }
@@ -52,11 +53,12 @@ static z_result_t _z_multicast_recv_t_msg_na(_z_transport_multicast_t *ztm, _z_t
                 to_read = _z_read_stream_size(&ztm->_common._zbuf);
                 // Read data
                 if (_z_zbuf_len(&ztm->_common._zbuf) < to_read) {
-                    _z_link_recv_zbuf(&ztm->_common._link, &ztm->_common._zbuf, addr);
+                    _z_link_recv_zbuf(ztm->_common._link, &ztm->_common._zbuf, addr);
                     if (_z_zbuf_len(&ztm->_common._zbuf) < to_read) {
                         _z_zbuf_set_rpos(&ztm->_common._zbuf,
                                          _z_zbuf_get_rpos(&ztm->_common._zbuf) - _Z_MSG_LEN_ENC_SIZE);
                         _z_zbuf_compact(&ztm->_common._zbuf);
+                        _Z_ERROR_LOG(_Z_ERR_TRANSPORT_NOT_ENOUGH_BYTES);
                         ret = _Z_ERR_TRANSPORT_NOT_ENOUGH_BYTES;
                         break;
                     }
@@ -65,8 +67,9 @@ static z_result_t _z_multicast_recv_t_msg_na(_z_transport_multicast_t *ztm, _z_t
             // Datagram capable links
             case Z_LINK_CAP_FLOW_DATAGRAM:
                 _z_zbuf_compact(&ztm->_common._zbuf);
-                to_read = _z_link_recv_zbuf(&ztm->_common._link, &ztm->_common._zbuf, addr);
+                to_read = _z_link_recv_zbuf(ztm->_common._link, &ztm->_common._zbuf, addr);
                 if (to_read == SIZE_MAX) {
+                    _Z_ERROR_LOG(_Z_ERR_TRANSPORT_RX_FAILED);
                     ret = _Z_ERR_TRANSPORT_RX_FAILED;
                 }
                 break;
@@ -91,23 +94,22 @@ z_result_t _z_multicast_recv_t_msg(_z_transport_multicast_t *ztm, _z_transport_m
     _ZP_UNUSED(ztm);
     _ZP_UNUSED(t_msg);
     _ZP_UNUSED(addr);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif  // Z_FEATURE_MULTICAST_TRANSPORT == 1
 
 #if Z_FEATURE_MULTICAST_TRANSPORT == 1 || Z_FEATURE_RAWETH_TRANSPORT == 1
 
-static _z_transport_peer_multicast_t *_z_find_peer_entry(_z_transport_peer_multicast_list_t *l,
+static _z_transport_peer_multicast_t *_z_find_peer_entry(_z_transport_peer_multicast_slist_t *l,
                                                          _z_slice_t *remote_addr) {
     _z_transport_peer_multicast_t *ret = NULL;
 
-    _z_transport_peer_multicast_list_t *xs = l;
-    for (; xs != NULL; xs = _z_transport_peer_multicast_list_tail(xs)) {
-        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_list_head(xs);
+    _z_transport_peer_multicast_slist_t *xs = l;
+    for (; xs != NULL; xs = _z_transport_peer_multicast_slist_next(xs)) {
+        _z_transport_peer_multicast_t *val = _z_transport_peer_multicast_slist_value(xs);
         if (val->_remote_addr.len != remote_addr->len) {
             continue;
         }
-
         if (memcmp(val->_remote_addr.start, remote_addr->start, remote_addr->len) == 0) {
             ret = val;
         }
@@ -165,7 +167,7 @@ static z_result_t _z_multicast_handle_frame(_z_transport_multicast_t *ztm, uint8
     while (_z_zbuf_len(msg->_payload) > 0) {
         _Z_RETURN_IF_ERR(_z_network_message_decode(&curr_nmsg, msg->_payload, &arcs, (uintptr_t)&entry->common));
         curr_nmsg._reliability = tmsg_reliability;
-        _Z_RETURN_IF_ERR(_z_handle_network_message(ztm->_common._session, &curr_nmsg, &entry->common));
+        _Z_RETURN_IF_ERR(_z_handle_network_message(&ztm->_common, &curr_nmsg, &entry->common));
     }
     return _Z_RES_OK;
 }
@@ -243,7 +245,7 @@ static z_result_t _z_multicast_handle_fragment_inner(_z_transport_multicast_t *z
         *dbuf = _z_wbuf_make(Z_FRAG_MAX_SIZE, false);
         if (_z_wbuf_capacity(dbuf) != Z_FRAG_MAX_SIZE) {
             _Z_ERROR("Not enough memory to allocate peer defragmentation buffer");
-            return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+            _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
         }
         *dbuf_state = _Z_DBUF_STATE_INIT;
     }
@@ -272,7 +274,7 @@ static z_result_t _z_multicast_handle_fragment_inner(_z_transport_multicast_t *z
             _Z_ERROR("Failed to convert defragmentation buffer into a decoding buffer!");
             _z_wbuf_clear(dbuf);
             *dbuf_state = _Z_DBUF_STATE_NULL;
-            return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+            _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
         }
         // Decode message
         _z_zenoh_message_t zm = {0};
@@ -281,9 +283,10 @@ static z_result_t _z_multicast_handle_fragment_inner(_z_transport_multicast_t *z
         zm._reliability = tmsg_reliability;
         if (ret == _Z_RES_OK) {
             // Memory clear of the network message data must be handled by the network message layer
-            _z_handle_network_message(ztm->_common._session, &zm, &entry->common);
+            _z_handle_network_message(&ztm->_common, &zm, &entry->common);
         } else {
             _Z_INFO("Failed to decode defragmented message");
+            _Z_ERROR_LOG(_Z_ERR_MESSAGE_DESERIALIZATION_FAILED);
             ret = _Z_ERR_MESSAGE_DESERIALIZATION_FAILED;
         }
         // Free the decoding buffer
@@ -291,6 +294,10 @@ static z_result_t _z_multicast_handle_fragment_inner(_z_transport_multicast_t *z
         *dbuf_state = _Z_DBUF_STATE_NULL;
     }
 #else
+    _ZP_UNUSED(ztm);
+    _ZP_UNUSED(header);
+    _ZP_UNUSED(msg);
+    _ZP_UNUSED(entry);
     _Z_INFO("Fragment dropped because fragmentation feature is deactivated");
 #endif
     return ret;
@@ -311,16 +318,15 @@ static z_result_t _z_multicast_handle_join_inner(_z_transport_multicast_t *ztm, 
     }
     // Check peer
     if (entry == NULL) {  // New peer
-        // If the new node has less representing capabilities then it is incompatible to communication
+        // If the new node has less representing capabilities then we can't communicate
         if ((msg->_seq_num_res != Z_SN_RESOLUTION) || (msg->_req_id_res != Z_REQ_RESOLUTION) ||
             (msg->_batch_size != Z_BATCH_MULTICAST_SIZE)) {
-            return _Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION;
+            _Z_INFO("Couldn't accept peer because distant node is incompatible config wise.");
+            _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_OPEN_SN_RESOLUTION);
         }
         // Initialize entry
-        entry = (_z_transport_peer_multicast_t *)z_malloc(sizeof(_z_transport_peer_multicast_t));
-        if (entry == NULL) {
-            return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
-        }
+        ztm->_peers = _z_transport_peer_multicast_slist_push_empty(ztm->_peers);
+        entry = _z_transport_peer_multicast_slist_value(ztm->_peers);
         entry->_sn_res = _z_sn_max(msg->_seq_num_res);
         entry->_remote_addr = _z_slice_duplicate(addr);
         _z_conduit_sn_list_copy(&entry->_sn_rx_sns, &msg->_next_sn);
@@ -328,8 +334,8 @@ static z_result_t _z_multicast_handle_join_inner(_z_transport_multicast_t *ztm, 
         // Update lease time (set as ms during)
         entry->_lease = msg->_lease;
         entry->_next_lease = entry->_lease;
-
         entry->common._remote_zid = msg->_zid;
+        entry->common._remote_whatami = msg->_whatami;
         entry->common._received = true;
         entry->common._remote_resources = NULL;
 #if Z_FEATURE_FRAGMENTATION == 1
@@ -339,7 +345,6 @@ static z_result_t _z_multicast_handle_join_inner(_z_transport_multicast_t *ztm, 
         entry->common._dbuf_reliable = _z_wbuf_null();
         entry->common._dbuf_best_effort = _z_wbuf_null();
 #endif
-        ztm->_peers = _z_transport_peer_multicast_list_push(ztm->_peers, entry);
     } else {  // Existing peer
         // Note that we receive data from the peer
         entry->common._received = true;
@@ -348,7 +353,7 @@ static z_result_t _z_multicast_handle_join_inner(_z_transport_multicast_t *ztm, 
         if ((msg->_seq_num_res != Z_SN_RESOLUTION) || (msg->_req_id_res != Z_REQ_RESOLUTION) ||
             (msg->_batch_size != Z_BATCH_MULTICAST_SIZE)) {
             // TODO: cleanup here should also be done on mappings/subs/etc...
-            _z_transport_peer_multicast_list_drop_filter(ztm->_peers, _z_transport_peer_multicast_eq, entry);
+            _z_transport_peer_multicast_slist_drop_first_filter(ztm->_peers, _z_transport_peer_multicast_eq, entry);
             return _Z_RES_OK;
         }
         // Update SNs
@@ -415,8 +420,8 @@ z_result_t _z_multicast_handle_transport_message(_z_transport_multicast_t *ztm, 
         case _Z_MID_T_CLOSE: {
             _Z_INFO("Closing connection as requested by the remote peer");
             if (entry != NULL) {
-                ztm->_peers =
-                    _z_transport_peer_multicast_list_drop_filter(ztm->_peers, _z_transport_peer_multicast_eq, entry);
+                ztm->_peers = _z_transport_peer_multicast_slist_drop_first_filter(
+                    ztm->_peers, _z_transport_peer_multicast_eq, entry);
             }
             _z_t_msg_close_clear(&t_msg->_body._close);
             break;
@@ -438,7 +443,7 @@ z_result_t _z_multicast_update_rx_buffer(_z_transport_multicast_t *ztm) {
         // Allocate a new buffer
         _z_zbuf_t new_zbuf = _z_zbuf_make(Z_BATCH_MULTICAST_SIZE);
         if (_z_zbuf_capacity(&new_zbuf) != Z_BATCH_MULTICAST_SIZE) {
-            return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+            _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
         }
         // Recopy leftover bytes
         size_t leftovers = _z_zbuf_len(&ztm->_common._zbuf);
@@ -458,6 +463,6 @@ z_result_t _z_multicast_handle_transport_message(_z_transport_multicast_t *ztm, 
     _ZP_UNUSED(ztm);
     _ZP_UNUSED(t_msg);
     _ZP_UNUSED(addr);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 #endif  // Z_FEATURE_MULTICAST_TRANSPORT == 1 || Z_FEATURE_RAWETH_TRANSPORT == 1

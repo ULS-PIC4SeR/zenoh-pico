@@ -32,7 +32,7 @@ z_result_t _z_socket_set_non_blocking(const _z_sys_net_socket_t *sock) {
     result = FreeRTOS_setsockopt(sock->_socket, 0, FREERTOS_SO_RCVTIMEO, &option_value, sizeof(option_value));
 
     if (result != pdPASS) {
-        return _Z_ERR_GENERIC;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     return _Z_RES_OK;
 }
@@ -40,14 +40,16 @@ z_result_t _z_socket_set_non_blocking(const _z_sys_net_socket_t *sock) {
 z_result_t _z_socket_accept(const _z_sys_net_socket_t *sock_in, _z_sys_net_socket_t *sock_out) {
     struct freertos_sockaddr naddr;
     socklen_t nlen = sizeof(naddr);
+    sock_out->_socket = FREERTOS_INVALID_SOCKET;
     int con_socket = FreeRTOS_accept(sock_in->_socket, &naddr, &nlen);
     if (con_socket < 0) {
-        return _Z_ERR_GENERIC;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     // Set socket options
     TickType_t receive_timeout = pdMS_TO_TICKS(Z_CONFIG_SOCKET_TIMEOUT);
     if (FreeRTOS_setsockopt(con_socket, 0, FREERTOS_SO_RCVTIMEO, &receive_timeout, 0) != 0) {
-        return _Z_ERR_GENERIC;
+        FreeRTOS_closesocket(con_socket);
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     // Note socket
     sock_out->_socket = con_socket;
@@ -62,33 +64,34 @@ z_result_t _z_socket_wait_event(void *v_peers, _z_mutex_rec_t *mutex) {
     // Create a SocketSet to monitor multiple sockets
     SocketSet_t socketSet = FreeRTOS_CreateSocketSet();
     if (socketSet == NULL) {
-        return _Z_ERR_SYSTEM_OUT_OF_MEMORY;
+        _Z_ERROR_RETURN(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
     }
     // Add each socket to the socket set
-    _z_transport_peer_unicast_list_t **peers = (_z_transport_peer_unicast_list_t **)v_peers;
+    _z_transport_peer_unicast_slist_t **peers = (_z_transport_peer_unicast_slist_t **)v_peers;
     _z_mutex_rec_lock(mutex);
-    _z_transport_peer_unicast_list_t *curr = *peers;
+    _z_transport_peer_unicast_slist_t *curr = *peers;
     while (curr != NULL) {
-        _z_transport_peer_unicast_t *peer = _z_transport_peer_unicast_list_head(curr);
+        _z_transport_peer_unicast_t *peer = _z_transport_peer_unicast_slist_value(curr);
         FreeRTOS_FD_SET(peer->_socket._socket, socketSet, eSELECT_READ);
-        curr = _z_transport_peer_unicast_list_tail(curr);
+        curr = _z_transport_peer_unicast_slist_next(curr);
     }
     _z_mutex_rec_unlock(mutex);
     // Wait for an event on any of the sockets in the set, non-blocking
     BaseType_t result = FreeRTOS_select(socketSet, portMAX_DELAY);
     // Check for errors or events
     if (result != 0) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
     // Mark sockets that are pending
     _z_mutex_rec_lock(mutex);
     curr = *peers;
     while (curr != NULL) {
-        _z_transport_peer_unicast_t *peer = _z_transport_peer_unicast_list_head(curr);
+        _z_transport_peer_unicast_t *peer = _z_transport_peer_unicast_slist_value(curr);
         if (FreeRTOS_FD_ISSET(peer->_socket._socket, socketSet)) {
             peer->_pending = true;
         }
-        curr = _z_transport_peer_unicast_list_tail(curr);
+        curr = _z_transport_peer_unicast_slist_next(curr);
     }
     _z_mutex_rec_unlock(mutex);
     // Clean up
@@ -109,6 +112,7 @@ z_result_t _z_create_endpoint_tcp(_z_sys_net_endpoint_t *ep, const char *s_addre
     z_result_t ret = _Z_RES_OK;
 
     if (FreeRTOS_getaddrinfo(s_address, NULL, NULL, &ep->_iptcp) < 0) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
         return ret;
     }
@@ -120,6 +124,7 @@ z_result_t _z_create_endpoint_tcp(_z_sys_net_endpoint_t *ep, const char *s_addre
     if ((port > (uint32_t)0) && (port <= (uint32_t)65355)) {  // Port numbers should range from 1 to 65355
         ep->_iptcp->ai_addr->sin_port = FreeRTOS_htons((uint16_t)port);
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -136,11 +141,19 @@ z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t re
         TickType_t receive_timeout = pdMS_TO_TICKS(tout);
 
         if (FreeRTOS_setsockopt(sock->_socket, 0, FREERTOS_SO_RCVTIMEO, &receive_timeout, 0) != 0) {
+            _Z_ERROR_LOG(_Z_ERR_GENERIC);
             ret = _Z_ERR_GENERIC;
         } else if (FreeRTOS_connect(sock->_socket, rep._iptcp->ai_addr, rep._iptcp->ai_addrlen) < 0) {
+            _Z_ERROR_LOG(_Z_ERR_GENERIC);
             ret = _Z_ERR_GENERIC;
         }
+
+        if (ret != _Z_RES_OK) {
+            FreeRTOS_closesocket(sock->_socket);
+            sock->_socket = FREERTOS_INVALID_SOCKET;
+        }
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -151,20 +164,27 @@ z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock, const _z_sys_net_endpoint_t 
     z_result_t ret = _Z_RES_OK;
     sock->_socket = FreeRTOS_socket(lep._iptcp->ai_family, FREERTOS_SOCK_STREAM, FREERTOS_IPPROTO_TCP);
     if (sock->_socket == FREERTOS_INVALID_SOCKET) {
-        return _Z_ERR_GENERIC;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     if (FreeRTOS_bind(sock->_socket, lep._iptcp->ai_addr, lep._iptcp->ai_addrlen) != 0) {
         FreeRTOS_closesocket(sock->_socket);
-        return _Z_ERR_GENERIC;
+        sock->_socket = FREERTOS_INVALID_SOCKET;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     if (FreeRTOS_listen(sock->_socket, Z_LISTEN_MAX_CONNECTION_NB) != 0) {
         FreeRTOS_closesocket(sock->_socket);
-        return _Z_ERR_GENERIC;
+        sock->_socket = FREERTOS_INVALID_SOCKET;
+        _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     return ret;
 }
 
-void _z_close_tcp(_z_sys_net_socket_t *sock) { FreeRTOS_closesocket(sock->_socket); }
+void _z_close_tcp(_z_sys_net_socket_t *sock) {
+    if (sock->_socket != FREERTOS_INVALID_SOCKET) {
+        FreeRTOS_closesocket(sock->_socket);
+        sock->_socket = FREERTOS_INVALID_SOCKET;
+    }
+}
 
 size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
     BaseType_t rb = FreeRTOS_recv(sock._socket, ptr, len, 0);
@@ -187,7 +207,7 @@ size_t _z_read_exact_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t le
         }
 
         n = n + rb;
-        pos = _z_ptr_u8_offset(pos, n);
+        pos = _z_ptr_u8_offset(pos, rb);
     } while (n != len);
 
     return n;
@@ -204,6 +224,7 @@ z_result_t _z_create_endpoint_udp(_z_sys_net_endpoint_t *ep, const char *s_addre
     z_result_t ret = _Z_RES_OK;
 
     if (FreeRTOS_getaddrinfo(s_address, NULL, NULL, &ep->_iptcp) < 0) {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
         return ret;
     }
@@ -215,6 +236,7 @@ z_result_t _z_create_endpoint_udp(_z_sys_net_endpoint_t *ep, const char *s_addre
     if ((port > (uint32_t)0) && (port <= (uint32_t)65355)) {  // Port numbers should range from 1 to 65355
         ep->_iptcp->ai_addr->sin_port = FreeRTOS_htons((uint16_t)port);
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -233,9 +255,13 @@ z_result_t _z_open_udp_unicast(_z_sys_net_socket_t *sock, const _z_sys_net_endpo
         TickType_t receive_timeout = pdMS_TO_TICKS(tout);
 
         if (FreeRTOS_setsockopt(sock->_socket, 0, FREERTOS_SO_RCVTIMEO, &receive_timeout, 0) != 0) {
+            _Z_ERROR_LOG(_Z_ERR_GENERIC);
+            FreeRTOS_closesocket(sock->_socket);
+            sock->_socket = FREERTOS_INVALID_SOCKET;
             ret = _Z_ERR_GENERIC;
         }
     } else {
+        _Z_ERROR_LOG(_Z_ERR_GENERIC);
         ret = _Z_ERR_GENERIC;
     }
 
@@ -249,12 +275,18 @@ z_result_t _z_listen_udp_unicast(_z_sys_net_socket_t *sock, const _z_sys_net_end
     (void)tout;
 
     // @TODO: To be implemented
+    _Z_ERROR_LOG(_Z_ERR_GENERIC);
     ret = _Z_ERR_GENERIC;
 
     return ret;
 }
 
-void _z_close_udp_unicast(_z_sys_net_socket_t *sock) { FreeRTOS_closesocket(sock->_socket); }
+void _z_close_udp_unicast(_z_sys_net_socket_t *sock) {
+    if (sock->_socket != FREERTOS_INVALID_SOCKET) {
+        FreeRTOS_closesocket(sock->_socket);
+        sock->_socket = FREERTOS_INVALID_SOCKET;
+    }
+}
 
 size_t _z_read_udp_unicast(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
     struct freertos_sockaddr raddr;
@@ -280,7 +312,7 @@ size_t _z_read_exact_udp_unicast(const _z_sys_net_socket_t sock, uint8_t *ptr, s
         }
 
         n = n + rb;
-        pos = _z_ptr_u8_offset(pos, n);
+        pos = _z_ptr_u8_offset(pos, rb);
     } while (n != len);
 
     return n;

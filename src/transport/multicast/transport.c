@@ -45,7 +45,7 @@ z_result_t _z_multicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
             ztm->_send_f = _z_raweth_send_t_msg;
             break;
         default:
-            return _Z_ERR_GENERIC;
+            _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
 
 // Initialize batching data
@@ -80,6 +80,7 @@ z_result_t _z_multicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
         // Clean up the buffers if one of them failed to be allocated
         if ((_z_wbuf_capacity(&ztm->_common._wbuf) != mtu) ||
             (_z_zbuf_capacity(&ztm->_common._zbuf) != Z_BATCH_MULTICAST_SIZE)) {
+            _Z_ERROR_LOG(_Z_ERR_SYSTEM_OUT_OF_MEMORY);
             ret = _Z_ERR_SYSTEM_OUT_OF_MEMORY;
             _Z_ERROR("Not enough memory to allocate transport tx rx buffers!");
 
@@ -103,7 +104,7 @@ z_result_t _z_multicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
         ztm->_common._sn_tx_best_effort = param->_initial_sn_tx._val._plain._best_effort;
 
         // Initialize peer list
-        ztm->_peers = _z_transport_peer_multicast_list_new();
+        ztm->_peers = _z_transport_peer_multicast_slist_new();
 
 #if Z_FEATURE_MULTI_THREAD == 1
         // Tasks
@@ -120,7 +121,7 @@ z_result_t _z_multicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
         ztm->_common._transmitted = false;
 
         // Transport link for multicast
-        ztm->_common._link = *zl;
+        ztm->_common._link = zl;
     }
     return ret;
 }
@@ -151,7 +152,7 @@ z_result_t _z_multicast_open_peer(_z_transport_multicast_establish_param_t *para
             ret = _z_raweth_link_send_t_msg(zl, &jsm);
             break;
         default:
-            return _Z_ERR_GENERIC;
+            _Z_ERROR_RETURN(_Z_ERR_GENERIC);
     }
     _z_t_msg_clear(&jsm);
 
@@ -167,6 +168,7 @@ z_result_t _z_multicast_open_client(_z_transport_multicast_establish_param_t *pa
     _ZP_UNUSED(param);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(local_zid);
+    _Z_ERROR_LOG(_Z_ERR_CONFIG_UNSUPPORTED_CLIENT_MULTICAST);
     z_result_t ret = _Z_ERR_CONFIG_UNSUPPORTED_CLIENT_MULTICAST;
     // @TODO: not implemented
     return ret;
@@ -187,7 +189,7 @@ z_result_t _z_multicast_transport_close(_z_transport_multicast_t *ztm, uint8_t r
 
 void _z_multicast_transport_clear(_z_transport_multicast_t *ztm, bool detach_tasks) {
     _z_common_transport_clear(&ztm->_common, detach_tasks);
-    _z_transport_peer_multicast_list_free(&ztm->_peers);
+    _z_transport_peer_multicast_slist_free(&ztm->_peers);
 }
 
 #else
@@ -197,7 +199,7 @@ z_result_t _z_multicast_transport_create(_z_transport_t *zt, _z_link_t *zl,
     _ZP_UNUSED(zt);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(param);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_multicast_open_peer(_z_transport_multicast_establish_param_t *param, const _z_link_t *zl,
@@ -205,7 +207,7 @@ z_result_t _z_multicast_open_peer(_z_transport_multicast_establish_param_t *para
     _ZP_UNUSED(param);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(local_zid);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_multicast_open_client(_z_transport_multicast_establish_param_t *param, const _z_link_t *zl,
@@ -213,20 +215,20 @@ z_result_t _z_multicast_open_client(_z_transport_multicast_establish_param_t *pa
     _ZP_UNUSED(param);
     _ZP_UNUSED(zl);
     _ZP_UNUSED(local_zid);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_multicast_send_close(_z_transport_multicast_t *ztm, uint8_t reason, bool link_only) {
     _ZP_UNUSED(ztm);
     _ZP_UNUSED(reason);
     _ZP_UNUSED(link_only);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 z_result_t _z_multicast_transport_close(_z_transport_multicast_t *ztm, uint8_t reason) {
     _ZP_UNUSED(ztm);
     _ZP_UNUSED(reason);
-    return _Z_ERR_TRANSPORT_NOT_AVAILABLE;
+    _Z_ERROR_RETURN(_Z_ERR_TRANSPORT_NOT_AVAILABLE);
 }
 
 void _z_multicast_transport_clear(_z_transport_multicast_t *ztm, bool detach_tasks) {
